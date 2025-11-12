@@ -1,0 +1,20 @@
+# Dependencies
+/node_modules
+
+# Environment Variables
+.env
+.env.local
+
+# Generated Data
+# Assuming this is created by your preprocess-dosm.js script
+dosm_data.json
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# OS-specific files
+.DS_Store
+Thumbs.db
