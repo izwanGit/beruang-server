@@ -1,74 +1,127 @@
-// server.js
-// Import necessary packages
+// server.js (Main Orchestrator)
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config(); // Loads your .env file
-const OpenAI = require('openai'); // We use the OpenAI package
-const fs = require('fs'); // Import File System
+const axios = require('axios');
+require('dotenv').config();
+const OpenAI = require('openai');
+const fs = require('fs');
 
-// --- ★★★ ADDED THIS ★★★ ---
-// Load your preprocessed RAG data on startup
+// --- LOAD LOCAL RESPONSES (Free/Fast) ---
+const localResponses = JSON.parse(fs.readFileSync('responses.json', 'utf8'));
+
+// --- LOAD RAG DATA ---
 let dosmRAGData = {};
 try {
   const data = fs.readFileSync('dosm_data.json', 'utf8');
   dosmRAGData = JSON.parse(data);
-  console.log('Successfully loaded DOSM RAG data.');
+  console.log('✅ Successfully loaded DOSM RAG data.');
 } catch (error) {
-  console.error('Error loading dosm_data.json:', error);
-  console.log('Make sure you run `node preprocess-dosm.js` first!');
-  process.exit(1); // Exit if data is not available
+  console.log('⚠️  Note: dosm_data.json not found (RAG disabled for now).');
 }
-// --- ★★★ END OF ADDITION ★★★ ---
 
-// --- Server Setup ---
 const app = express();
-app.use(express.json()); // Allows server to read JSON bodies
-app.use(cors()); // Allows your React Native app to make requests
+app.use(express.json());
+app.use(cors());
 const PORT = 3000;
 
-// --- OpenRouter (Grok) Setup ---
+// --- GROK SETUP ---
 const openAI = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
-// --- This is the "RAG" part from your proposal ---
-// This system instruction is based on your FYP proposal.
-const systemInstruction = `
+// --- PERSONA ---
+const SYSTEM_INSTRUCTION = `
 You are Beruang Assistant, a laid-back finance pal in the Beruang app. "Beruang" means bear in Malay—giving cozy, no-nonsense vibes to help with money stuff.
-Mission: Assist young adults (18-30) using 50/30/20: 50% Needs, 30% Wants, 20% Savings/Debt. Provide advice only when directly relevant or requested—prioritize straight answers.
-RAG Use: Leverage history and transactions for context-aware replies. For queries like car suggestions, use known finances to inform without lecturing on spending.
-Style:
 
-Direct & Short: Under 80 words. Answer the question first, then extras if needed.
-Casual Buddy Tone: Relaxed, positive. Max 1 emoji (e.g., 🐻).
-No Judgment: Stick to facts and suggestions.
-Malaysia Vibe: RM, local examples like Perodua or Proton.
-Plain Text: No formatting.
+Mission: Assist young adults (18-30) using 50/30/20: 50% Needs, 30% Wants, 20% Savings/Debt. Provide advice only when directly relevant or requested—prioritize straight answers.
+
+RAG Use: Leverage history and transactions for context-aware replies. For queries like car suggestions, use known finances to inform without lecturing on spending.
+
+Style:
+- Direct & Short: Under 80 words. Answer the question first, then extras if needed.
+- Casual Buddy Tone: Relaxed, positive. Max 1 emoji (e.g., 🐻).
+- No Judgment: Stick to facts and suggestions.
+- Malaysia Vibe: RM, local examples like Perodua or Proton.
+- Plain Text: No formatting.
 
 Response Flow:
-
-Direct Queries: Answer straight (e.g., for "affordable cars," list options with prices based on salary).
-If Advice Fits: 1-2 bullets, brief.
-Always End with Question: To keep chat going.
-Greetings: Simple reply.
-Off-Topic: Redirect nicely.
+1. Direct Queries: Answer straight (e.g., for "affordable cars," list options with prices based on salary).
+2. If Advice Fits: 1-2 bullets, brief.
+3. Always End with Question: To keep chat going.
+4. Greetings: Simple reply.
+5. Off-Topic: Redirect nicely.
 
 Stay helpful, not pushy—direct is key! 🐻
 `;
 
-// --- API Endpoint for the Chatbot ---
-// Your app will send requests to this '/chat' endpoint
+// --- AI BACKEND CONFIG ---
+const AI_BACKEND_URL = 'http://localhost:1234';
+const AI_TIMEOUT = 3000; // 3 seconds max for local AI
+
+// --- CHAT ENDPOINT ---
 app.post('/chat', async (req, res) => {
   try {
-    // Get the user's message, history, transactions, AND userProfile
     const { message, history, transactions, userProfile } = req.body;
 
-    // --- ★★★ THIS IS THE RAG UPDATE ★★★ ---
-    
-    // 1. Retrieve the user's personal data (from onboarding)
-    const userContext = `
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+
+    // ★★★ STEP 1: Query Local AI with Timeout ★★★
+    let intentPrediction = null;
+    let aiBackendOnline = true;
+
+    try {
+      const aiResponse = await axios.post(
+        `${AI_BACKEND_URL}/predict-intent`, 
+        { message },
+        { timeout: AI_TIMEOUT }
+      );
+      
+      intentPrediction = aiResponse.data.prediction;
+      
+      console.log(`🧠 Local AI: ${intentPrediction.intent} (${intentPrediction.confidence})`);
+      
+      if (intentPrediction.ood_analysis?.is_ood) {
+        console.log(`   └─ OOD Reasons: ${intentPrediction.ood_analysis.reasons.join(', ')}`);
+      }
+      
+    } catch (err) {
+      aiBackendOnline = false;
+      if (err.code === 'ECONNREFUSED') {
+        console.error('⚠️  Local AI Backend OFFLINE. Install: npm run train:intent');
+      } else if (err.code === 'ETIMEDOUT') {
+        console.error('⚠️  Local AI Backend TIMEOUT. Check server health.');
+      } else {
+        console.error('⚠️  Local AI Error:', err.message);
+      }
+      console.log('   → Routing to Grok as fallback');
+    }
+
+    // ★★★ STEP 2: Check for Local Response ★★★
+    if (intentPrediction && 
+        intentPrediction.intent !== 'COMPLEX_ADVICE' && 
+        localResponses[intentPrediction.intent]) {
+      
+      console.log(`⚡ Serving Local Response: ${intentPrediction.intent} (FREE)`);
+      
+      return res.json({ 
+        message: localResponses[intentPrediction.intent],
+        source: 'local',
+        intent: intentPrediction.intent,
+        confidence: intentPrediction.confidence,
+        ai_backend_status: aiBackendOnline ? 'online' : 'offline'
+      });
+    }
+
+    // ★★★ STEP 3: Fallback to Grok (With Full RAG Context) ★★★
+    console.log('🤖 Routing to Grok (Complex/Unsure)...');
+
+    // Build comprehensive context
+    const userContext = userProfile ? `
 Here is my complete user profile for context:
+- Name: ${userProfile.name}
 - Age: ${userProfile.age}
 - State: ${userProfile.state}
 - Occupation: ${userProfile.occupation}
@@ -77,71 +130,104 @@ Here is my complete user profile for context:
 - Biggest Money Challenge: ${userProfile.financialSituation}
 - My Spending Style: ${userProfile.riskTolerance}
 - My Tracking Method (Before this app): ${userProfile.cashFlow}
-`.trim();
+`.trim() : '';
 
-    // 2. Retrieve the state-level DOSM data (from dosm_data.json)
-    const stateData = dosmRAGData[userProfile.state] || dosmRAGData['Nasional'];
-    const dosmContext = `
+    const stateData = userProfile?.state ? 
+      (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) : 
+      dosmRAGData['Nasional'] || '';
+      
+    const dosmContext = stateData ? `
 Here is relevant statistical data for my location (from DOSM):
 ${stateData}
-`.trim();
+`.trim() : '';
 
-    // 3. Retrieve the user's live transaction data
-    const transactionContext = `
+    const transactionContext = transactions && transactions.length > 0 ? `
 And here is my recent transaction data for context:
 ${JSON.stringify(transactions, null, 2)}
-`.trim();
+`.trim() : '';
 
-    // 4. Augment the prompt with ALL retrieved data
-    const augmentedPrompt = `
-Here is my latest message: "${message}"
+    // Construct augmented prompt
+    const augmentedPrompt = [
+      `Here is my latest message: "${message}"`,
+      userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
+      dosmContext && '--- MY LOCATION\'S STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
+      transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext
+    ].filter(Boolean).join('\n\n');
 
---- MY PROFILE CONTEXT ---
-${userContext}
-
---- MY LOCATION'S STATISTICAL CONTEXT (DOSM) ---
-${dosmContext}
-
---- MY RECENT TRANSACTIONS ---
-${transactionContext}
-`;
-    // --- ★★★ END OF RAG UPDATE ★★★ ---
-
-    // Construct the messages array in OpenAI format
+    // Build conversation history
     const messages = [
-      {
-        role: 'system',
-        content: systemInstruction,
-      },
-      // Add the existing chat history
-      ...history.map((msg) => ({
-        role: msg.role === 'model' ? 'assistant' : 'user',
-        content: msg.parts.map((part) => part.text).join(''),
+      { role: 'system', content: SYSTEM_INSTRUCTION },
+      ...(history || []).map(msg => ({ 
+        role: msg.role === 'model' ? 'assistant' : 'user', 
+        content: msg.parts.map(p => p.text).join('') 
       })),
-      // Add the new augmented user message
-      {
-        role: 'user',
-        content: augmentedPrompt,
-      },
+      { role: 'user', content: augmentedPrompt }
     ];
 
-    // Send the request to OpenRouter
+    // Call Grok
     const completion = await openAI.chat.completions.create({
-      model: "x-ai/grok-4-fast", // Using Grok
+      model: "x-ai/grok-4-fast",
       messages: messages,
+      temperature: 0.7,
+      max_tokens: 150 // Keep responses concise
     });
 
-    const botResponseText = completion.choices[0].message.content;
+    const grokResponse = completion.choices[0].message.content;
 
-    // Send the AI's response back to the React Native app
-    res.json({ message: botResponseText });
+    res.json({ 
+      message: grokResponse, 
+      source: 'grok',
+      reason: intentPrediction?.intent === 'COMPLEX_ADVICE' ? 'complex_query' : 'local_ai_unavailable',
+      original_intent: intentPrediction?.original_intent,
+      ai_backend_status: aiBackendOnline ? 'online' : 'offline'
+    });
+
   } catch (error) {
-    console.error('Error in /chat:', error);
-    res.status(500).json({ error: 'AI Error. Please try again.' });
+    console.error('💥 Server Error:', error.message);
+    
+    // Friendly error response
+    res.status(500).json({ 
+      error: 'Beruang is taking a nap. Try again in a moment! 🐻💤',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
-// --- Start the Server ---
+// --- HEALTH CHECK ENDPOINT ---
+app.get('/health', async (req, res) => {
+  let aiBackendStatus = 'offline';
+  
+  try {
+    await axios.get(`${AI_BACKEND_URL}/health`, { timeout: 2000 });
+    aiBackendStatus = 'online';
+  } catch (err) {
+    aiBackendStatus = 'offline';
+  }
+  
+  res.json({
+    status: 'online',
+    timestamp: new Date().toISOString(),
+    services: {
+      orchestrator: 'online',
+      ai_backend: aiBackendStatus,
+      grok: !!process.env.OPENROUTER_API_KEY ? 'configured' : 'missing_api_key',
+      rag_data: Object.keys(dosmRAGData).length > 0 ? 'loaded' : 'missing'
+    }
+  });
+});
+
+// --- START SERVER ---
 app.listen(PORT, () => {
-  console.log(`Beruang server running on http://192.168.0.8:3000/chat`);
+  console.log('================================================');
+  console.log('🐻 BERUANG ORCHESTRATOR SERVER');
+  console.log('================================================');
+  console.log(`✅ Running on http://localhost:${PORT}`);
+  console.log(`   - POST /chat (Main endpoint)`);
+  console.log(`   - GET  /health (System status)`);
+  console.log('');
+  console.log('Services:');
+  console.log(`   - AI Backend: ${AI_BACKEND_URL}`);
+  console.log(`   - Grok API: ${process.env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️  Missing'}`);
+  console.log(`   - RAG Data: ${Object.keys(dosmRAGData).length > 0 ? '✅ Loaded' : '⚠️  Missing'}`);
+  console.log('================================================');
 });

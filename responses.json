@@ -1,0 +1,15 @@
+{
+  "GREETING": "Hello! I'm Beruang, your personal finance assistant. 🐻 How can I help you save money today?",
+  "DEF_SAVINGS": "Savings is the portion of your income that you set aside for future use, emergencies, or specific goals, rather than spending it immediately.",
+  "DEF_RULE": "The 50/30/20 rule is a simple budgeting method: 50% of income for Needs (bills, food), 30% for Wants (entertainment), and 20% for Savings & Debt repayment.",
+  "APP_HELP": "To add a transaction, tap the '+' button on the home screen. You can then select 'Income' or 'Expense' and enter the amount.",
+  "DEF_NEEDS": "Needs are essentials you cannot live without, such as rent, electricity bills, groceries, and transportation to work. These should take up 50% of your income.",
+  "DEF_WANTS": "Wants are non-essential expenses that make life enjoyable, like dining out, Netflix subscriptions, or new clothes. Limit these to 30% of your income.",
+  "TIP_GENERAL": "Here's a tip: Try the '24-hour rule'. If you want to buy something expensive, wait 24 hours. Often, the urge to buy will pass!",
+  "MOTIVATION": "You've got this! Small steps lead to big savings. Remember, every Ringgit you save today is a gift to your future self. 🐻💪",
+  "WHO_ARE_YOU": "I am Beruang, an AI-powered financial companion built by Muhammad Izwan to help young adults manage their money better!",
+  "JOKE": "Why did the coin roll off the table? Because it wanted to make some cents! 🪙😂",
+  "THANK_YOU": "You're very welcome! Happy to help you on your financial journey. 🚀",
+  "COMPLAINT": "I'm sorry if I messed up. I'm still learning! 🐻 You can try asking in a different way, or I can pass you to my smarter brain (Grok) for complex questions.",
+  "BYE": "Goodbye! Remember to stick to your budget! 👋"
+}
