@@ -1,11 +1,11 @@
-// server.js (WITH STREAMING SUPPORT!)
+// server.js (FULL VERSION - WITH EVERYTHING RESTORED)
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
 require('dotenv').config();
 const OpenAI = require('openai');
 const fs = require('fs');
-const compression = require('compression'); // NEW: For selective compression
+const compression = require('compression'); 
 
 // --- LOAD LOCAL RESPONSES (Free/Fast) ---
 const localResponses = JSON.parse(fs.readFileSync('responses.json', 'utf8'));
@@ -20,7 +20,7 @@ try {
   console.log('⚠️  Note: dosm_data.json not found (DOSM RAG disabled for now).');
 }
 
-// --- LOAD EXPERT TIPS (YOUR NEW RAG DATA) ---
+// --- LOAD EXPERT TIPS (YOUR RAG DATA) ---
 let expertTips = [];
 try {
   const tipsData = fs.readFileSync('expert_tips.json', 'utf8');
@@ -68,7 +68,7 @@ const openAI = new OpenAI({
   httpsAgent: new (require('https').Agent)({ keepAlive: true })
 });
 
-// --- PERSONA (YOUR ORIGINAL) ---
+// --- PERSONA (RESTORED FULL VERSION) ---
 const SYSTEM_INSTRUCTION = `
 You are Beruang Assistant, a laid-back finance pal in the Beruang app. "Beruang" means bear in Malay—giving cozy, no-nonsense vibes to help with money stuff.
 
@@ -102,7 +102,7 @@ Stay helpful, not pushy—direct is key! 🐻
 
 // --- AI BACKEND CONFIG ---
 const AI_BACKEND_URL = 'http://localhost:1234';
-const AI_TIMEOUT = 2500;
+const AI_TIMEOUT = 5000; // 5s timeout
 
 // --- AXIOS INSTANCE WITH KEEPALIVE ---
 const aiClient = axios.create({
@@ -129,6 +129,22 @@ function getRelevantTips(message) {
     .map(([tip]) => tip);
 }
 
+// ==========================================
+// ★★★ NEW ROUTE: TRANSACTION CATEGORIZATION ★★★
+// ==========================================
+app.post('/predict-transaction', async (req, res) => {
+  try {
+    // Forward the request to the AI Backend (Port 1234)
+    const response = await aiClient.post(`${AI_BACKEND_URL}/predict-transaction`, req.body);
+    // Send the AI's prediction back to the mobile app
+    res.json(response.data);
+  } catch (error) {
+    console.error('Categorization error:', error.message);
+    // Fallback if AI is offline
+    res.status(500).json({ error: 'AI unavailable', isAi: false });
+  }
+});
+
 // --- STREAMING CHAT ENDPOINT 🔥 ---
 app.post('/chat/stream', async (req, res) => {
   const requestStart = Date.now();
@@ -140,24 +156,23 @@ app.post('/chat/stream', async (req, res) => {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
 
-    // Set up SSE headers and flush immediately for low latency
+    // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Transfer-Encoding', 'chunked'); // Encourage chunking
-    res.flushHeaders(); // NEW: Flush headers ASAP to start connection
+    res.flushHeaders(); 
 
     // Helper to send SSE events with flush
     const sendEvent = (event, data) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      res.flush(); // NEW: Force flush each event for immediate delivery
+      res.flush(); 
     };
 
     // Send thinking status
     sendEvent('thinking', { message: 'Processing your request...' });
 
-    // ★★★ ULTRA-FAST PARALLEL PROCESSING WITH allSettled (handles failures without blocking) ★★★
+    // ★★★ ULTRA-FAST PARALLEL PROCESSING ★★★
     const [intentResult, relevantTips, userContext, dosmContext, transactionContext] = await Promise.allSettled([
       // 1. Local AI prediction
       aiClient.post(`${AI_BACKEND_URL}/predict-intent`, { message })
@@ -166,7 +181,6 @@ app.post('/chat/stream', async (req, res) => {
           aiBackendOnline: true
         }))
         .catch(err => {
-          console.warn('AI backend failed:', err.message); // Log but continue
           return { intentPrediction: null, aiBackendOnline: false };
         }),
 
@@ -204,7 +218,7 @@ ${stateData}
 And here is my recent transaction data for context:
 ${JSON.stringify(transactions, null, 2)}
 `.trim() : '')
-    ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null)); // Extract values, null on fail
+    ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null));
 
     const { intentPrediction, aiBackendOnline } = intentResult || {};
 
@@ -215,7 +229,7 @@ ${JSON.stringify(transactions, null, 2)}
       
       console.log(`⚡ Serving Local Response: ${intentPrediction.intent}`);
       
-      // Simulate typing for local responses (instant but feels natural)
+      // Simulate typing for local responses
       const localMsg = localResponses[intentPrediction.intent];
       const words = localMsg.split(' ');
       
@@ -224,7 +238,7 @@ ${JSON.stringify(transactions, null, 2)}
           content: words[i] + ' ',
           done: false
         });
-        await new Promise(resolve => setTimeout(resolve, 30)); // 30ms per word
+        await new Promise(resolve => setTimeout(resolve, 30)); 
       }
       
       sendEvent('done', { 
@@ -265,16 +279,16 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
       { role: 'user', content: augmentedPrompt }
     ];
 
-    // Stream from Grok with optimized params
+    // Stream from Grok
     const stream = await openAI.chat.completions.create({
       model: "x-ai/grok-4.1-fast",
       messages: messages,
-      temperature: 0.5, // NEW: Lower for faster, more deterministic responses
-      max_tokens: 100, // NEW: Cap lower to reduce total time (under 100 words goal)
+      temperature: 0.5,
+      max_tokens: 150,
       stream: true
     });
 
-    // Send tokens as they arrive
+    // Send tokens
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
       
@@ -294,7 +308,7 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
 
     res.end();
 
-    // NEW: Heartbeat to keep alive (every 15s, if long-running)
+    // NEW: Heartbeat
     const heartbeat = setInterval(() => {
       sendEvent('heartbeat', { status: 'alive' });
     }, 15000);
@@ -309,7 +323,7 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
   }
 });
 
-// --- LEGACY NON-STREAMING ENDPOINT (Keep for compatibility) ---
+// --- LEGACY NON-STREAMING ENDPOINT (RESTORED) ---
 app.post('/chat', async (req, res) => {
   const requestStart = Date.now();
   
@@ -320,7 +334,6 @@ app.post('/chat', async (req, res) => {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
 
-    // ★★★ ULTRA-FAST PARALLEL PROCESSING ★★★
     const [intentResult, relevantTips, userContext, dosmContext, transactionContext] = await Promise.allSettled([
       aiClient.post(`${AI_BACKEND_URL}/predict-intent`, { message })
         .then(response => ({
@@ -399,10 +412,10 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
     ];
 
     const completion = await openAI.chat.completions.create({
-      model: "x-ai/grok-4-fast",
+      model: "x-ai/grok-4.1-fast",
       messages: messages,
-      temperature: 0.5, // NEW: Optimized
-      max_tokens: 100, // NEW: Capped
+      temperature: 0.5,
+      max_tokens: 150,
       stream: false
     });
 
@@ -427,7 +440,6 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
 // --- HEALTH CHECK ENDPOINT ---
 app.get('/health', async (req, res) => {
   let aiBackendStatus = 'offline';
-  
   try {
     await axios.get(`${AI_BACKEND_URL}/health`, { timeout: 2000 });
     aiBackendStatus = 'online';
@@ -463,7 +475,7 @@ async function warmupConnections() {
   
   try {
     await openAI.chat.completions.create({
-      model: "x-ai/grok-4-fast",
+      model: "x-ai/grok-4.1-fast",
       messages: [{ role: 'user', content: 'ping' }],
       max_tokens: 5
     });
@@ -481,6 +493,7 @@ app.listen(PORT, async () => {
   console.log(`✅ Running on http://localhost:${PORT}`);
   console.log(`   - POST /chat/stream (STREAMING - USE THIS!) 🔥`);
   console.log(`   - POST /chat (Legacy non-streaming)`);
+  console.log(`   - POST /predict-transaction (NEW! Transaction AI) 🤖`);
   console.log(`   - GET  /health (System status)`);
   console.log('');
   console.log('Speed Optimizations:');
