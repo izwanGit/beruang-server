@@ -73,24 +73,33 @@ function autoCorrect(tokens, wordIndex) {
   });
 }
 
-// --- Text Preprocessing ---
+// --- Text Preprocessing (FIXED VERSION) ---
 function preprocess(text, metadata) {
-  const { wordIndex, maxLen, maxVocabSize } = metadata;
+  const { wordIndex, maxLen, maxVocabSize, vocabSize } = metadata;
   
-  const cleanText = text.toLowerCase().replace(/[^a-z0-9\s]/g, '');
+  // Use vocabSize if maxVocabSize is not available (for backward compatibility)
+  const vocabLimit = maxVocabSize || vocabSize || 10000;
+  
+  // ✅ CRITICAL: Match training preprocessing exactly
+  const cleanText = text.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')  // Remove special chars, keep alphanumeric + spaces
+    .replace(/\s+/g, ' ')      // Normalize multiple spaces to single space
+    .trim();                   // Remove leading/trailing whitespace
+  
   let tokens = cleanText.split(' ').filter(t => t.trim() !== '');
   
   // Apply Auto-Correct
   const correctedTokens = autoCorrect(tokens, wordIndex);
   
-  // Convert to Sequence
+  // Convert to Sequence - match training logic
   const sequence = correctedTokens.map(word => {
     const index = wordIndex[word];
-    return (index && index < maxVocabSize) ? index : 1; // 1 is <UNK>
-  });
+    // Return index if valid, otherwise UNK (1)
+    return (index !== undefined && index < vocabLimit) ? index : 1; // 1 is <UNK>
+  }).slice(0, maxLen); // Truncate if too long
 
-  // Pad
-  if (sequence.length > maxLen) {
+  // Pad to the left (match training: left padding)
+  if (sequence.length >= maxLen) {
     return sequence.slice(0, maxLen);
   }
   const pad = new Array(maxLen - sequence.length).fill(0);
@@ -415,10 +424,9 @@ async function predictIntentInternal(message) {
 }
 
 // ==========================================
-// 🔌 6. API ENDPOINTS
+// 📌 6. API ENDPOINTS
 // ==========================================
 
-// --- TRANSACTION PREDICTION ENDPOINT ---
 // --- TRANSACTION PREDICTION ENDPOINT ---
 app.post('/predict-transaction', async (req, res) => {
   try {
