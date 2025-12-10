@@ -1,17 +1,18 @@
 // server.js (TRUE UNIFIED VERSION: ORCHESTRATOR + FULL AI BACKEND)
 const util = require('util');
-// Fix for Node v23+ compatibility (from your backend code)
+// Fix for Node v23+ compatibility
 util.isNullOrUndefined = util.isNullOrUndefined || ((value) => value === null || value === undefined);
 
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios'); // Still needed for health checks or external calls
+const axios = require('axios'); 
 require('dotenv').config();
 const OpenAI = require('openai');
-const fs = require('fs-extra'); // Using fs-extra as requested
+const fs = require('fs-extra'); 
 const path = require('path');
 const compression = require('compression');
-const tf = require('@tensorflow/tfjs-node'); // THE BRAIN IS HERE
+const tf = require('@tensorflow/tfjs-node'); 
+const { pipeline } = require('@xenova/transformers');
 
 // ==========================================
 // 🧠 1. AI BRAIN CONFIGURATION & VARS
@@ -23,12 +24,12 @@ const INTENT_METADATA_PATH = path.resolve('./model_intent/metadata.json');
 
 let transModel, transMetadata;
 let intentModel, intentMetadata;
+let intentExtractor; 
 
 // ==========================================
-// 🛠️ 2. AI HELPER FUNCTIONS (FROM AI BACKEND)
+// 🛠️ 2. AI HELPER FUNCTIONS 
 // ==========================================
 
-// --- Levenshtein Distance (Fuzzy Matching) ---
 function levenshtein(a, b) {
   const matrix = [];
   for (let i = 0; i <= b.length; i++) matrix[i] = [i];
@@ -49,7 +50,6 @@ function levenshtein(a, b) {
   return matrix[b.length][a.length];
 }
 
-// --- Auto-Correct Logic ---
 function autoCorrect(tokens, wordIndex) {
   const validWords = Object.keys(wordIndex);
   return tokens.map(word => {
@@ -73,32 +73,23 @@ function autoCorrect(tokens, wordIndex) {
   });
 }
 
-// --- Text Preprocessing (FIXED VERSION) ---
 function preprocess(text, metadata) {
   const { wordIndex, maxLen, maxVocabSize, vocabSize } = metadata;
-  
-  // Use vocabSize if maxVocabSize is not available (for backward compatibility)
   const vocabLimit = maxVocabSize || vocabSize || 10000;
   
-  // ✅ CRITICAL: Match training preprocessing exactly
   const cleanText = text.toLowerCase()
-    .replace(/[^\w\s]/g, ' ')  // Remove special chars, keep alphanumeric + spaces
-    .replace(/\s+/g, ' ')      // Normalize multiple spaces to single space
-    .trim();                   // Remove leading/trailing whitespace
+    .replace(/[^\w\s]/g, ' ')  
+    .replace(/\s+/g, ' ')      
+    .trim();                   
   
   let tokens = cleanText.split(' ').filter(t => t.trim() !== '');
-  
-  // Apply Auto-Correct
   const correctedTokens = autoCorrect(tokens, wordIndex);
   
-  // Convert to Sequence - match training logic
   const sequence = correctedTokens.map(word => {
     const index = wordIndex[word];
-    // Return index if valid, otherwise UNK (1)
-    return (index !== undefined && index < vocabLimit) ? index : 1; // 1 is <UNK>
-  }).slice(0, maxLen); // Truncate if too long
+    return (index !== undefined && index < vocabLimit) ? index : 1; 
+  }).slice(0, maxLen); 
 
-  // Pad to the left (match training: left padding)
   if (sequence.length >= maxLen) {
     return sequence.slice(0, maxLen);
   }
@@ -106,66 +97,59 @@ function preprocess(text, metadata) {
   return [...pad, ...sequence];
 }
 
-// --- Multi-Layer OOD Detection System ---
 function detectOOD(message, sequence, predictions, metadata) {
   const reasons = [];
   
-  // Layer 1: Input Quality Check
-  const validTokens = sequence.filter(t => t > 1).length; // Non-padding, non-UNK
-  if (validTokens === 0) {
-    reasons.push('No recognized words');
-    return { isOOD: true, reasons, confidence: 0 };
+  if (sequence) {
+      const validTokens = sequence.filter(t => t > 1).length; 
+      if (validTokens === 0) {
+        reasons.push('No recognized words');
+        return { isOOD: true, reasons, confidence: 0 };
+      }
+      
+      const unkRatio = sequence.filter(t => t === 1).length / sequence.filter(t => t > 0).length;
+      if (unkRatio > 0.6) {
+        reasons.push(`${(unkRatio * 100).toFixed(0)}% unknown words`);
+      }
   }
   
-  const unkRatio = sequence.filter(t => t === 1).length / sequence.filter(t => t > 0).length;
-  if (unkRatio > 0.6) {
-    reasons.push(`${(unkRatio * 100).toFixed(0)}% unknown words`);
-  }
-  
-  // Layer 2: Length Check
   const tokens = message.toLowerCase().split(' ').filter(t => t.trim() !== '');
-  if (tokens.length > 15) {
+  if (tokens.length > 20) { 
     reasons.push('Query too long (complex)');
   }
   
-  // Layer 3: Prediction Confidence Analysis
   const predData = predictions.dataSync();
   const maxConf = Math.max(...predData);
   const maxIdx = predData.indexOf(maxConf);
   
-  // Get predicted intent name
-  const intentIndexReverse = metadata.intentIndex;
-  const predictedIntent = intentIndexReverse[String(maxIdx)] || intentIndexReverse[maxIdx];
+  const labelMap = metadata.labelMap || metadata.intentIndex; 
+  const predictedIntent = labelMap[maxIdx] || "UNKNOWN";
   
-  // Layer 4: Per-Class Threshold Check
   const thresholds = metadata.confidenceThresholds || {};
-  const classThreshold = thresholds[predictedIntent] || metadata.globalThreshold || 0.80;
+  const classThreshold = thresholds[predictedIntent] || metadata.globalThreshold || 0.70; 
   
   if (maxConf < classThreshold) {
     reasons.push(`Confidence ${(maxConf * 100).toFixed(1)}% < threshold ${(classThreshold * 100).toFixed(1)}%`);
   }
   
-  // Layer 5: Entropy Check (measures uncertainty)
   const entropy = -predData.reduce((sum, p) => {
     return sum + (p > 0 ? p * Math.log(p) : 0);
   }, 0);
   const maxEntropy = Math.log(predData.length);
   const normalizedEntropy = entropy / maxEntropy;
   
-  if (normalizedEntropy > 0.7) {
+  if (normalizedEntropy > 0.6) { 
     reasons.push(`High uncertainty (entropy: ${normalizedEntropy.toFixed(2)})`);
   }
   
-  // Layer 6: Second-Best Gap Check
   const sorted = [...predData].sort((a, b) => b - a);
   const gap = sorted[0] - sorted[1];
   
-  if (gap < 0.15) {
+  if (gap < 0.10) {
     reasons.push(`Low confidence gap (${(gap * 100).toFixed(1)}%)`);
   }
   
-  // Decision: Is it OOD?
-  const isOOD = reasons.length >= 2 || maxConf < classThreshold;
+  const isOOD = reasons.length >= 1 || maxConf < classThreshold; 
   
   return { 
     isOOD, 
@@ -178,15 +162,35 @@ function detectOOD(message, sequence, predictions, metadata) {
 }
 
 // ==========================================
-// 📂 3. DATA LOADING (RAG & LOCAL)
+// 📚 3. DATA LOADING (MANUAL & RAG)
 // ==========================================
 
-// --- LOAD LOCAL RESPONSES ---
+// --- LOAD LOCAL RESPONSES & BUILD MANUAL ---
 let localResponses = {};
+let appManualContext = ""; // <--- NEW: Text manual for Grok
+
 try {
-  localResponses = JSON.parse(fs.readFileSync('responses.json', 'utf8'));
+  const rawData = JSON.parse(fs.readFileSync('responses.json', 'utf8'));
+  
+  if (rawData.intents && Array.isArray(rawData.intents)) {
+      // 1. Build Map for Local Serving
+      rawData.intents.forEach(intent => {
+          localResponses[intent.tag] = intent.responses;
+      });
+
+      // 2. Build Text Manual for Grok (Only relevant topics)
+      const manualLines = rawData.intents
+        .filter(i => i.tag.startsWith('HELP_') || i.tag.startsWith('NAV_') || i.tag.startsWith('DEF_'))
+        .map(i => `- Topic: ${i.tag}\n  Info: ${i.responses[0]}`);
+      
+      appManualContext = manualLines.join('\n');
+      console.log(`✅ Loaded Local Responses & Built App Manual (${manualLines.length} topics).`);
+
+  } else {
+      localResponses = rawData; 
+  }
 } catch (e) { 
-  console.log('⚠️ responses.json missing'); 
+  console.log('⚠️ responses.json missing or invalid:', e.message); 
 }
 
 // --- LOAD DOSM DATA ---
@@ -210,7 +214,6 @@ try {
   expertTips = [];
 }
 
-// --- PRE-INDEX EXPERT TIPS ---
 const tipsIndex = new Map();
 expertTips.forEach(tip => {
   const keywords = tip.topic.toLowerCase().split(' ')
@@ -230,62 +233,79 @@ expertTips.forEach(tip => {
 // ==========================================
 const app = express();
 app.use(cors());
-// NEW: Compress everything EXCEPT streams
 app.use(compression({
   filter: (req, res) => {
-    if (req.path === '/chat/stream') {
-      return false; // Disable for SSE to reduce latency
-    }
+    if (req.path === '/chat/stream') return false; 
     return compression.filter(req, res);
   }
 }));
 app.use(express.json());
 const PORT = 3000;
 
-// --- GROK SETUP WITH KEEPALIVE ---
 const openAI = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY,
   httpAgent: new (require('https').Agent)({ keepAlive: true }),
   defaultHeaders: {
-    'HTTP-Referer': 'http://localhost:3000', // Replace with your app's URL
-    'X-Title': 'Beruang App' // Or your app name
+    'HTTP-Referer': 'http://localhost:3000', 
+    'X-Title': 'Beruang App'
   }
 });
 
-// --- PERSONA ---
 const SYSTEM_INSTRUCTION = `
+
 You are Beruang Assistant, a laid-back finance pal in the Beruang app. "Beruang" means bear in Malay—giving cozy, no-nonsense vibes to help with money stuff.
 
-Mission: Assist young adults (18-30) using 50/30/20: 50% Needs, 30% Wants, 20% Savings/Debt. Provide advice only when directly relevant or requested—prioritize straight answers.
+Mission: Assist young adults (18-30) in personal finance management using the 50/30/20 rule: 50% Needs, 30% Wants, 20% Savings/Debt. Features include budgeting, expense tracking, spending insights via charts, and personalized advice via chatbot. Provide advice only when directly relevant or requested—prioritize straight answers.
 
-RAG Use: Leverage history and transactions for context-aware replies. For queries like car suggestions, use known finances to inform without lecturing on spending.
+RAG Use: Leverage user history, transactions, and app features for context-aware replies. For queries like car suggestions, use known finances to inform without lecturing on spending.
 
 HANDLING RAG DATA (IMPORTANT):
-- I will provide you with "Expert Tips" and context.
-- Trust the **principles** and **formulas** in these tips (e.g. "15% rule", "ASB vs Tabung Haji").
-- However, if the context contains specific **prices or dates** (e.g. "Myvi price in 2025"), please **cross-reference with your own internal knowledge**.
-- If you know the price has changed, say: "Historically it was RM34k, but nowadays it's closer to..."
-- Always prioritize the *intent* of the advice over the exact older numbers.
+
+- **APP MANUAL**: For app usage questions (e.g., "Add income", "View budget"), reference these core features: Manual entry for income/expenses via data forms (automatically categorized per 50/30/20); Dashboard for charts/graphs of spendings; Text-based chatbot for advice. No bank links, internet required. If unclear, ask for clarification.
+
+- I will provide "Expert Tips" and context.
+
+- Trust **principles** and **formulas** in tips (e.g., "15% rule", "ASB vs Tabung Haji").
+
+- Cross-reference specific **prices or dates** (e.g., "Myvi price in 2025") with your internal knowledge: "Historically it was RM34k, but nowadays it's closer to..."
+
+- Prioritize the *intent* of advice over exact older numbers.
+
+- **BUDGET DATA**: You will receive detailed budget breakdown including 50/30/20 allocations, actual spending, savings targets, and current balance. Use this to provide precise financial advice.
 
 Style:
-- Direct & Short: Under 100 words. Answer the question first, then extras if needed.
+
+- Direct & Short: Under 100 words. Answer first, then extras.
+
 - Casual Buddy Tone: Relaxed, positive. Max 1 emoji (e.g., 🐻).
-- No Judgment: Stick to facts and suggestions.
+
+- No Judgment: Facts and suggestions only.
+
 - Malaysia Vibe: RM, local examples like Perodua or Proton.
+
 - Plain Text: No formatting.
 
 Response Flow:
-1. Direct Queries: Answer straight (e.g., for "affordable cars," list options with prices based on salary).
-2. If Advice Fits: 1-2 bullets, brief.
-3. Always End with Question: To keep chat going.
-4. Greetings: Simple reply.
-5. Off-Topic: Redirect nicely.
+
+1. **App Questions**: Use APP MANUAL first.
+
+2. **Budget Questions**: Use the provided budget data to give specific advice on spending, saving, and allocations.
+
+3. Direct Queries: Answer straight (e.g., affordable cars: list options with prices based on salary).
+
+4. If Advice Fits: 1-2 bullets, brief.
+
+5. Always End with Question: To keep chat going.
+
+6. Greetings: Simple reply.
+
+7. Off-Topic: Redirect nicely.
 
 Stay helpful, not pushy—direct is key! 🐻
+
 `;
 
-// --- HELPER: GET RELEVANT TIPS ---
 function getRelevantTips(message) {
   const words = message.toLowerCase().split(' ').filter(w => w.length > 3);
   const tipScores = new Map();
@@ -304,10 +324,9 @@ function getRelevantTips(message) {
 }
 
 // ==========================================
-// 🎮 5. INTERNAL AI LOGIC (No Networking)
+// 🧮 5. INTERNAL AI LOGIC
 // ==========================================
 
-// --- Internal Transaction Predictor ---
 async function predictTransactionInternal(description) {
   if (!transModel || !transMetadata) throw new Error('Transaction Model not loaded');
   if (!description) throw new Error('No description provided');
@@ -315,7 +334,6 @@ async function predictTransactionInternal(description) {
   const { categoryIndex, subcategoryIndex, maxLen } = transMetadata;
   const sequence = preprocess(description, transMetadata);
   
-  // Fallback Check
   const validTokenCount = sequence.filter(t => t > 1).length;
   if (validTokenCount === 0) {
     return {
@@ -355,12 +373,10 @@ async function predictTransactionInternal(description) {
   };
 }
 
-// --- Internal Intent Predictor (With Guardrails) ---
 async function predictIntentInternal(message) {
-  if (!intentModel || !intentMetadata) return null;
+  if (!intentModel || !intentMetadata || !intentExtractor) return null;
   if (!message || !message.trim()) return null;
 
-  // ★★★ SAFETY LAYER 1: KEYWORD GUARDRAILS (Pre-Model Filter) ★★★
   const RED_FLAGS = [
     'invest', 'crypto', 'stock', 'debt', 'loan', 'buy', 'sell', 
     'salary', 'finance', 'money', 'budget', 'save for', 'afford',
@@ -375,7 +391,7 @@ async function predictIntentInternal(message) {
   const hasRedFlag = RED_FLAGS.some(flag => lowerMsg.includes(flag));
 
   if ((hasComplexStarter && hasRedFlag) || (hasRedFlag && lowerMsg.split(' ').length > 5)) {
-    console.log(`[Intent] 🛡️ PRE-FILTER: Red flag combo detected in "${message}". → GROK`);
+    console.log(`[Intent] ⚠️ PRE-FILTER: Red flag combo detected in "${message}". → GROK`);
     return {
       intent: 'COMPLEX_ADVICE',
       confidence: '100.00%',
@@ -383,34 +399,30 @@ async function predictIntentInternal(message) {
     };
   }
 
-  // ★★★ SAFETY LAYER 2: MODEL PREDICTION + OOD DETECTION ★★★
-  const { maxLen } = intentMetadata;
-  const sequence = preprocess(message, intentMetadata);
-
-  const inputTensor = tf.tensor2d([sequence], [1, maxLen], 'int32');
-  const prediction = intentModel.predict(inputTensor);
+  const output = await intentExtractor(message, { pooling: 'mean', normalize: true });
+  const inputTensor = tf.tensor2d([Array.from(output.data)]);
   
-  // Analyze prediction with OOD detector
-  const oodAnalysis = detectOOD(message, sequence, prediction, intentMetadata);
+  const prediction = intentModel.predict(inputTensor);
+  const oodAnalysis = detectOOD(message, null, prediction, intentMetadata);
   
   const predData = prediction.dataSync();
   const maxIdx = predData.indexOf(Math.max(...predData));
-  const { intentIndex } = intentMetadata;
-  const predictedIntent = intentIndex[String(maxIdx)] || intentIndex[maxIdx] || 'UNKNOWN';
+  
+  const labelMap = intentMetadata.labelMap || intentMetadata.intentIndex;
+  const predictedIntent = labelMap[String(maxIdx)] || labelMap[maxIdx] || 'UNKNOWN';
   const confidence = (predData[maxIdx] * 100).toFixed(2);
 
   inputTensor.dispose();
   prediction.dispose();
 
-  // ★★★ DECISION LOGIC ★★★
   let finalIntent = predictedIntent;
   let logMsg = `[Intent] "${message}" -> ${predictedIntent} (${confidence}%)`;
 
   if (oodAnalysis.isOOD) {
-    finalIntent = 'COMPLEX_ADVICE';
-    logMsg += ` -> 🚫 OOD DETECTED: ${oodAnalysis.reasons.join(', ')} → GROK`;
+    finalIntent = 'COMPLEX_ADVICE'; 
+    logMsg += ` → 🚨 OOD DETECTED: ${oodAnalysis.reasons.join(', ')} → GROK`;
   } else {
-    logMsg += ` -> ✅ LOCAL REPLY (passed OOD checks)`;
+    logMsg += ` → ✅ LOCAL REPLY (passed OOD checks)`;
   }
   
   console.log(logMsg);
@@ -424,47 +436,191 @@ async function predictIntentInternal(message) {
 }
 
 // ==========================================
-// 📌 6. API ENDPOINTS
+// 📋 6. HELPER: CALCULATE BUDGET DATA (Fallback)
 // ==========================================
 
-// --- TRANSACTION PREDICTION ENDPOINT ---
+function calculateBudgetData(transactions, userProfile) {
+  if (!transactions || !userProfile) return null;
+  
+  const getMonthKey = (dateStr) => {
+    const d = new Date(dateStr);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const currentDate = new Date();
+  const currentMonthKey = getMonthKey(currentDate.toISOString().split('T')[0]);
+
+  // Income
+  const allMonthlyIncomeTrans = transactions.filter(
+    (t) => t.type === 'income' && getMonthKey(t.date) === currentMonthKey
+  );
+  
+  const freshMonthlyIncome = allMonthlyIncomeTrans
+    .filter((t) => !t.isCarriedOver)
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalMonthlyIncome = allMonthlyIncomeTrans.reduce((sum, t) => sum + t.amount, 0);
+
+  // Expenses
+  const monthlyExpenses = transactions.filter(
+    (t) => t.type === 'expense' && getMonthKey(t.date) === currentMonthKey
+  );
+
+  const needsSpent = monthlyExpenses
+    .filter((t) => t.category === 'needs')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const wantsSpent = monthlyExpenses
+    .filter((t) => t.category === 'wants')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Savings
+  const savingsTarget20 = freshMonthlyIncome * 0.2;
+  const leftoverTarget = userProfile.allocatedSavingsTarget || 0;
+
+  const monthlySaved20Realized = monthlyExpenses
+    .filter((t) => t.category === 'savings' && t.name === 'Monthly Savings')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const monthlySavedLeftoverRealized = monthlyExpenses
+    .filter((t) => t.category === 'savings' && t.name === 'Saving Leftover Balance')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalMonthlySaved = monthlySaved20Realized + monthlySavedLeftoverRealized;
+
+  const totalSavedAllTime = transactions
+    .filter((t) => t.type === 'expense' && t.category === 'savings')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Budget Targets (50/30/20)
+  const needsTarget = freshMonthlyIncome * 0.5;
+  const wantsTarget = freshMonthlyIncome * 0.3;
+
+  // Current Wallet Balance
+  const totalExpenses = needsSpent + wantsSpent;
+  const currentWalletBalance = totalMonthlyIncome - totalExpenses - totalMonthlySaved;
+
+  // Pending Savings
+  const pendingLeftoverSave = Math.max(0, leftoverTarget - monthlySavedLeftoverRealized);
+  const pending20Save = Math.max(0, savingsTarget20 - monthlySaved20Realized);
+  
+  const displayBalance = currentWalletBalance - pendingLeftoverSave;
+
+  return {
+    month: currentMonthKey,
+    income: {
+      fresh: freshMonthlyIncome,
+      total: totalMonthlyIncome
+    },
+    budget: {
+      needs: { 
+        target: needsTarget, 
+        spent: needsSpent, 
+        remaining: Math.max(0, needsTarget - needsSpent),
+        percentage: needsTarget > 0 ? (needsSpent / needsTarget) * 100 : 0
+      },
+      wants: { 
+        target: wantsTarget, 
+        spent: wantsSpent, 
+        remaining: Math.max(0, wantsTarget - wantsSpent),
+        percentage: wantsTarget > 0 ? (wantsSpent / wantsTarget) * 100 : 0
+      },
+      savings20: { 
+        target: savingsTarget20, 
+        saved: monthlySaved20Realized, 
+        pending: pending20Save,
+        percentage: savingsTarget20 > 0 ? (monthlySaved20Realized / savingsTarget20) * 100 : 0
+      },
+      leftover: { 
+        target: leftoverTarget, 
+        saved: monthlySavedLeftoverRealized, 
+        pending: pendingLeftoverSave,
+        percentage: leftoverTarget > 0 ? (monthlySavedLeftoverRealized / leftoverTarget) * 100 : 0
+      }
+    },
+    totals: {
+      savedThisMonth: totalMonthlySaved,
+      savedAllTime: totalSavedAllTime,
+      walletBalance: currentWalletBalance,
+      displayBalance: displayBalance,
+      totalExpenses: totalExpenses,
+      needsSpent,
+      wantsSpent
+    }
+  };
+}
+
+function formatBudgetForRAG(budgetData) {
+  if (!budgetData) return '';
+  
+  return `
+--- CURRENT MONTH BUDGET BREAKDOWN (50/30/20) ---
+Month: ${budgetData.month}
+Total Income: RM ${budgetData.income.fresh.toFixed(2)}
+
+BUDGET ALLOCATIONS:
+- Needs (50%): RM ${budgetData.budget.needs.target.toFixed(2)} allocated
+  • Spent: RM ${budgetData.budget.needs.spent.toFixed(2)}
+  • Remaining: RM ${budgetData.budget.needs.remaining.toFixed(2)}
+  • ${budgetData.budget.needs.percentage.toFixed(0)}% of budget used
+
+- Wants (30%): RM ${budgetData.budget.wants.target.toFixed(2)} allocated
+  • Spent: RM ${budgetData.budget.wants.spent.toFixed(2)}
+  • Remaining: RM ${budgetData.budget.wants.remaining.toFixed(2)}
+  • ${budgetData.budget.wants.percentage.toFixed(0)}% of budget used
+
+- Savings (20%): RM ${budgetData.budget.savings20.target.toFixed(2)} target
+  • Saved: RM ${budgetData.budget.savings20.saved.toFixed(2)}
+  • Remaining to save: RM ${budgetData.budget.savings20.pending.toFixed(2)}
+  • ${budgetData.budget.savings20.percentage.toFixed(0)}% of target achieved
+
+LEFTOVER BALANCE SAVINGS:
+- Target: RM ${budgetData.budget.leftover.target.toFixed(2)}
+- Saved: RM ${budgetData.budget.leftover.saved.toFixed(2)}
+- Remaining: RM ${budgetData.budget.leftover.pending.toFixed(2)}
+- ${budgetData.budget.leftover.percentage.toFixed(0)}% of target achieved
+
+TOTALS:
+- Total Saved This Month: RM ${budgetData.totals.savedThisMonth.toFixed(2)}
+- Total Saved All Time: RM ${budgetData.totals.savedAllTime.toFixed(2)}
+- Total Needs Spent: RM ${budgetData.totals.needsSpent.toFixed(2)}
+- Total Wants Spent: RM ${budgetData.totals.wantsSpent.toFixed(2)}
+- Current Available Balance: RM ${budgetData.totals.displayBalance.toFixed(2)}
+`.trim();
+}
+
+// ==========================================
+// 📡 6. API ENDPOINTS
+// ==========================================
+
 app.post('/predict-transaction', async (req, res) => {
   try {
     const { description } = req.body;
     const prediction = await predictTransactionInternal(description);
-    
-    // ✅ NEW LOGGING LINE
     console.log(`[Transaction] "${description}" -> ${prediction.category} (${prediction.confidence.category}) / ${prediction.subcategory} (${prediction.confidence.subcategory})`);
-    
-    res.json({
-      input: description,
-      prediction: prediction
-    });
+    res.json({ input: description, prediction: prediction });
   } catch (error) {
     console.error('Trans Error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
 
-// --- STREAMING CHAT ENDPOINT (THE BIG ONE) ---
 app.post('/chat/stream', async (req, res) => {
   const requestStart = Date.now();
   
   try {
-    const { message, history, transactions, userProfile } = req.body;
+    const { message, history, transactions, userProfile, budgetContext } = req.body; // ADDED: budgetContext
 
     if (!message || !message.trim()) {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
 
-    // Set up SSE headers
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('Transfer-Encoding', 'chunked'); 
     res.flushHeaders(); 
 
-    // Helper to send SSE events
     const sendEvent = (event, data) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
@@ -473,16 +629,15 @@ app.post('/chat/stream', async (req, res) => {
 
     sendEvent('thinking', { message: 'Processing your request...' });
 
-    // ★★★ ULTRA-FAST PARALLEL PROCESSING ★★★
-    // We now call internal functions instead of Axios for the intent
+    // Get month key helper
+    const getMonthKey = (dateStr) => {
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
     const [intentResult, relevantTips, userContext, dosmContext, transactionContext] = await Promise.allSettled([
-      // 1. Local AI prediction (Direct Call)
       predictIntentInternal(message),
-
-      // 2. Fast indexed tips lookup
       Promise.resolve(getRelevantTips(message)),
-
-      // 3. User context
       Promise.resolve(userProfile ? `
 Here is my complete user profile for context:
 - Name: ${userProfile.name}
@@ -496,8 +651,6 @@ Here is my complete user profile for context:
 - My Tracking Method (Before this app): ${userProfile.cashFlow}
 - Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
 `.trim() : ''),
-
-      // 4. DOSM context
       (async () => {
         const stateData = userProfile?.state ? 
           (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) : 
@@ -507,25 +660,27 @@ Here is relevant statistical data for my location (from DOSM):
 ${stateData}
 `.trim() : '';
       })(),
-
-      // 5. Transaction context
       Promise.resolve(transactions && transactions.length > 0 ? `
 And here is my recent transaction data for context:
-${JSON.stringify(transactions, null, 2)}
+${JSON.stringify(transactions.slice(0, 10), null, 2)}
 `.trim() : '')
     ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null)); 
 
-    const intentPrediction = intentResult; // Now it's the direct object
+    const intentPrediction = intentResult;
 
-    // ★★★ CHECK FOR LOCAL RESPONSE ★★★
+    // Check for local response
     if (intentPrediction && 
         intentPrediction.intent !== 'COMPLEX_ADVICE' && 
+        intentPrediction.intent !== 'GARBAGE' &&
         localResponses[intentPrediction.intent]) {
       
       console.log(`⚡ Serving Local Response: ${intentPrediction.intent}`);
       
-      // Simulate typing
-      const localMsg = localResponses[intentPrediction.intent];
+      const responseData = localResponses[intentPrediction.intent];
+      const localMsg = Array.isArray(responseData) 
+          ? responseData[Math.floor(Math.random() * responseData.length)] 
+          : responseData;
+
       const words = localMsg.split(' ');
       
       for (let i = 0; i < words.length; i++) {
@@ -545,18 +700,28 @@ ${JSON.stringify(transactions, null, 2)}
       return res.end();
     }
 
-    // ★★★ STREAM FROM GROK ★★★
+    // Stream from Grok
     console.log('🤖 Streaming from Grok...');
 
     const tipsContext = relevantTips.length > 0 ? `
---- EXPERT KNOWLEDGE BASE (FROM LOCAL MALAYSIAN SOURCES) ---
+--- EXPERT FINANCIAL KNOWLEDGE BASE ---
 ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
 ` : '';
+
+    // Use provided budgetContext OR calculate fallback
+    let finalBudgetContext = budgetContext;
+    if (!finalBudgetContext && transactions && userProfile) {
+      console.log('📊 Calculating budget data on server (fallback)');
+      const budgetData = calculateBudgetData(transactions, userProfile);
+      finalBudgetContext = formatBudgetForRAG(budgetData);
+    }
 
     const augmentedPrompt = [
       `Here is my latest message: "${message}"`,
       userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
-      dosmContext && '--- MY LOCATION\'S STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
+      finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext, // ADDED
+      appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
+      dosmContext && '--- STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
       tipsContext,
       transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext
     ].filter(Boolean).join('\n\n');
@@ -604,17 +769,103 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
   } catch (error) {
     console.error('💥 Streaming Error:', error);
     res.write(`event: error\n`);
-    res.write(`data: ${JSON.stringify({ error: 'Stream failed 🐻💤' })}\n\n`);
+    res.write(`data: ${JSON.stringify({ error: 'Stream failed 🐻💔' })}\n\n`);
     res.end();
   }
 });
 
-// --- LEGACY CHAT ENDPOINT ---
 app.post('/chat', async (req, res) => {
-  res.status(200).json({ message: "Please use /chat/stream for best experience." });
+  try {
+    const { message, history, transactions, userProfile, budgetContext } = req.body;
+    
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+
+    // Get month key helper
+    const getMonthKey = (dateStr) => {
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const relevantTips = getRelevantTips(message);
+    
+    const userContext = userProfile ? `
+Here is my complete user profile for context:
+- Name: ${userProfile.name}
+- Age: ${userProfile.age}
+- State: ${userProfile.state}
+- Occupation: ${userProfile.occupation}
+- Monthly Income: RM ${userProfile.monthlyIncome}
+- Main Financial Goal: ${userProfile.financialGoals}
+- Biggest Money Challenge: ${userProfile.financialSituation}
+- My Spending Style: ${userProfile.riskTolerance}
+- My Tracking Method (Before this app): ${userProfile.cashFlow}
+- Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
+`.trim() : '';
+
+    const dosmContext = userProfile?.state ? 
+      (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) : 
+      dosmRAGData['Nasional'] || '';
+
+    const transactionContext = transactions && transactions.length > 0 ? `
+And here is my recent transaction data for context:
+${JSON.stringify(transactions.slice(0, 10), null, 2)}
+`.trim() : '';
+
+    const tipsContext = relevantTips.length > 0 ? `
+--- EXPERT FINANCIAL KNOWLEDGE BASE ---
+${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
+` : '';
+
+    // Use provided budgetContext OR calculate fallback
+    let finalBudgetContext = budgetContext;
+    if (!finalBudgetContext && transactions && userProfile) {
+      console.log('📊 Calculating budget data on server (fallback)');
+      const budgetData = calculateBudgetData(transactions, userProfile);
+      finalBudgetContext = formatBudgetForRAG(budgetData);
+    }
+
+    const augmentedPrompt = [
+      `Here is my latest message: "${message}"`,
+      userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
+      finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext,
+      appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
+      dosmContext && '--- STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
+      tipsContext,
+      transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext
+    ].filter(Boolean).join('\n\n');
+
+    const recentHistory = (history || []).slice(-8);
+    const messages = [
+      { role: 'system', content: SYSTEM_INSTRUCTION },
+      ...recentHistory.map(msg => ({ 
+        role: msg.role === 'model' ? 'assistant' : 'user', 
+        content: msg.parts.map(p => p.text).join('') 
+      })),
+      { role: 'user', content: augmentedPrompt }
+    ];
+
+    const completion = await openAI.chat.completions.create({
+      model: "x-ai/grok-4.1-fast",
+      messages: messages,
+      temperature: 0.5,
+      max_tokens: 150
+    });
+
+    const botResponse = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+    
+    res.json({ 
+      message: botResponse,
+      budget_context_used: !!finalBudgetContext
+    });
+
+  } catch (error) {
+    console.error('Chat Error:', error);
+    res.status(500).json({ error: 'Chat processing failed' });
+  }
 });
 
-// --- HEALTH CHECK ENDPOINT ---
 app.get('/health', (req, res) => {
   res.json({
     status: 'online',
@@ -629,51 +880,48 @@ app.get('/health', (req, res) => {
 });
 
 // ==========================================
-// 🚀 7. STARTUP & WARMUP (PRESERVED FULL LOGIC)
+// 🚀 7. STARTUP & WARMUP
 // ==========================================
 
-// 1. Model Loading
 async function loadModels() {
   console.log('------------------------------------------------');
-  console.log('🤖 INITIALIZING UNIFIED BERUANG SERVER...');
+  console.log('🔄 INITIALIZING UNIFIED BERUANG SERVER...');
   
-  // Load Transaction Model
   try {
     if (fs.existsSync(TRANS_METADATA_PATH)) {
       transModel = await tf.loadLayersModel(TRANS_MODEL_PATH);
       transMetadata = await fs.readJson(TRANS_METADATA_PATH);
-      console.log('✅ Transaction Model Loaded (Ready to categorize expenses)');
+      console.log('✅ Transaction Model Loaded');
     } else {
-      console.warn('⚠ Transaction Model MISSING. Run: npm run train:transaction');
+      console.warn('⚠️ Transaction Model MISSING. Run: npm run train:transaction');
     }
   } catch (error) {
     console.error('❌ Transaction Model Load Error:', error.message);
   }
 
-  // Load Intent Model
   try {
     if (fs.existsSync(INTENT_METADATA_PATH)) {
       intentModel = await tf.loadLayersModel(INTENT_MODEL_PATH);
       intentMetadata = await fs.readJson(INTENT_METADATA_PATH);
-      console.log('✅ Intent Model Loaded (Ready to chat)');
-      console.log(`   - Loaded ${Object.keys(intentMetadata.intentIndex).length} intents`);
-      console.log(`   - Global threshold: ${(intentMetadata.globalThreshold * 100).toFixed(0)}%`);
+      
+      console.log('⏳ Loading MiniLM Extractor...');
+      intentExtractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+      
+      console.log('✅ Intent Model & Extractor Loaded');
+      const labelCount = intentMetadata.labelMap ? Object.keys(intentMetadata.labelMap).length : 0;
+      console.log(`   - Loaded ${labelCount} intents`);
     } else {
-      console.warn('⚠ Intent Model MISSING. Run: npm run gen:intent && npm run train:intent');
+      console.warn('⚠️ Intent Model MISSING. Run: npm run gen:intent && npm run train:intent');
     }
   } catch (error) {
     console.error('❌ Intent Model Load Error:', error.message);
   }
 }
 
-// 2. Connection Warmup (Modified for Internal calls)
 async function warmupConnections() {
   console.log('🔥 Warming up connections...');
-  
-  // Warmup Local AI
   try {
-    // We simulate a call to the internal function instead of axios
-    if (intentModel) {
+    if (intentModel && intentExtractor) {
       console.log('   ...Pre-heating TensorFlow...');
       await predictIntentInternal('hello'); 
       console.log('   ✅ Local AI warmed up');
@@ -684,7 +932,6 @@ async function warmupConnections() {
     console.log('   ⚠️  Local AI warmup failed:', err.message);
   }
   
-  // Warmup Grok
   try {
     await openAI.chat.completions.create({
       model: "x-ai/grok-4.1-fast",
@@ -697,7 +944,6 @@ async function warmupConnections() {
   }
 }
 
-// 3. Start Server
 async function startServer() {
   await loadModels();
   
@@ -724,6 +970,8 @@ async function startServer() {
     console.log(`   - RAG Data (DOSM): ${Object.keys(dosmRAGData).length > 0 ? '✅ Loaded' : '⚠️  Missing'}`);
     console.log(`   - RAG Data (Expert): ${expertTips.length > 0 ? `✅ ${expertTips.length} tips` : '⚠️  Missing'}`);
     console.log(`   - Tips Index: ${tipsIndex.size > 0 ? `✅ ${tipsIndex.size} keywords` : '⚠️  Not built'}`);
+    console.log(`   - App Manual (RAG): ${appManualContext.length > 0 ? '✅ Loaded for Grok' : '⚠️  Missing'}`);
+    console.log(`   - Budget Context: ✅ READY (Frontend-provided)`);
     console.log('================================================');
     
     await warmupConnections();
@@ -731,5 +979,4 @@ async function startServer() {
   });
 }
 
-// EXECUTE START
 startServer();
