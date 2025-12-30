@@ -5,13 +5,13 @@ util.isNullOrUndefined = util.isNullOrUndefined || ((value) => value === null ||
 
 const express = require('express');
 const cors = require('cors');
-const axios = require('axios'); 
+const axios = require('axios');
 require('dotenv').config();
 const OpenAI = require('openai');
-const fs = require('fs-extra'); 
+const fs = require('fs-extra');
 const path = require('path');
 const compression = require('compression');
-const tf = require('@tensorflow/tfjs-node'); 
+const tf = require('@tensorflow/tfjs-node');
 const { pipeline } = require('@xenova/transformers');
 
 // ==========================================
@@ -24,7 +24,7 @@ const INTENT_METADATA_PATH = path.resolve('./model_intent/metadata.json');
 
 let transModel, transMetadata;
 let intentModel, intentMetadata;
-let intentExtractor; 
+let intentExtractor;
 
 // ==========================================
 // 🛠️ 2. AI HELPER FUNCTIONS 
@@ -54,7 +54,7 @@ function autoCorrect(tokens, wordIndex) {
   const validWords = Object.keys(wordIndex);
   return tokens.map(word => {
     if (wordIndex[word]) return word;
-    if (word.length < 4) return word; 
+    if (word.length < 4) return word;
 
     let bestMatch = word;
     let minDist = Infinity;
@@ -63,7 +63,7 @@ function autoCorrect(tokens, wordIndex) {
     for (const candidate of candidates) {
       const dist = levenshtein(word, candidate);
       const threshold = word.length > 6 ? 2 : 1;
-      
+
       if (dist <= threshold && dist < minDist) {
         minDist = dist;
         bestMatch = candidate;
@@ -76,19 +76,19 @@ function autoCorrect(tokens, wordIndex) {
 function preprocess(text, metadata) {
   const { wordIndex, maxLen, maxVocabSize, vocabSize } = metadata;
   const vocabLimit = maxVocabSize || vocabSize || 10000;
-  
+
   const cleanText = text.toLowerCase()
-    .replace(/[^\w\s]/g, ' ')  
-    .replace(/\s+/g, ' ')      
-    .trim();                   
-  
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
   let tokens = cleanText.split(' ').filter(t => t.trim() !== '');
   const correctedTokens = autoCorrect(tokens, wordIndex);
-  
+
   const sequence = correctedTokens.map(word => {
     const index = wordIndex[word];
-    return (index !== undefined && index < vocabLimit) ? index : 1; 
-  }).slice(0, maxLen); 
+    return (index !== undefined && index < vocabLimit) ? index : 1;
+  }).slice(0, maxLen);
 
   if (sequence.length >= maxLen) {
     return sequence.slice(0, maxLen);
@@ -99,61 +99,61 @@ function preprocess(text, metadata) {
 
 function detectOOD(message, sequence, predictions, metadata) {
   const reasons = [];
-  
+
   if (sequence) {
-      const validTokens = sequence.filter(t => t > 1).length; 
-      if (validTokens === 0) {
-        reasons.push('No recognized words');
-        return { isOOD: true, reasons, confidence: 0 };
-      }
-      
-      const unkRatio = sequence.filter(t => t === 1).length / sequence.filter(t => t > 0).length;
-      if (unkRatio > 0.6) {
-        reasons.push(`${(unkRatio * 100).toFixed(0)}% unknown words`);
-      }
+    const validTokens = sequence.filter(t => t > 1).length;
+    if (validTokens === 0) {
+      reasons.push('No recognized words');
+      return { isOOD: true, reasons, confidence: 0 };
+    }
+
+    const unkRatio = sequence.filter(t => t === 1).length / sequence.filter(t => t > 0).length;
+    if (unkRatio > 0.6) {
+      reasons.push(`${(unkRatio * 100).toFixed(0)}% unknown words`);
+    }
   }
-  
+
   const tokens = message.toLowerCase().split(' ').filter(t => t.trim() !== '');
-  if (tokens.length > 20) { 
+  if (tokens.length > 20) {
     reasons.push('Query too long (complex)');
   }
-  
+
   const predData = predictions.dataSync();
   const maxConf = Math.max(...predData);
   const maxIdx = predData.indexOf(maxConf);
-  
-  const labelMap = metadata.labelMap || metadata.intentIndex; 
+
+  const labelMap = metadata.labelMap || metadata.intentIndex;
   const predictedIntent = labelMap[maxIdx] || "UNKNOWN";
-  
+
   const thresholds = metadata.confidenceThresholds || {};
-  const classThreshold = thresholds[predictedIntent] || metadata.globalThreshold || 0.70; 
-  
+  const classThreshold = thresholds[predictedIntent] || metadata.globalThreshold || 0.70;
+
   if (maxConf < classThreshold) {
     reasons.push(`Confidence ${(maxConf * 100).toFixed(1)}% < threshold ${(classThreshold * 100).toFixed(1)}%`);
   }
-  
+
   const entropy = -predData.reduce((sum, p) => {
     return sum + (p > 0 ? p * Math.log(p) : 0);
   }, 0);
   const maxEntropy = Math.log(predData.length);
   const normalizedEntropy = entropy / maxEntropy;
-  
-  if (normalizedEntropy > 0.6) { 
+
+  if (normalizedEntropy > 0.6) {
     reasons.push(`High uncertainty (entropy: ${normalizedEntropy.toFixed(2)})`);
   }
-  
+
   const sorted = [...predData].sort((a, b) => b - a);
   const gap = sorted[0] - sorted[1];
-  
+
   if (gap < 0.10) {
     reasons.push(`Low confidence gap (${(gap * 100).toFixed(1)}%)`);
   }
-  
-  const isOOD = reasons.length >= 1 || maxConf < classThreshold; 
-  
-  return { 
-    isOOD, 
-    reasons, 
+
+  const isOOD = reasons.length >= 1 || maxConf < classThreshold;
+
+  return {
+    isOOD,
+    reasons,
     confidence: maxConf,
     entropy: normalizedEntropy,
     gap: gap,
@@ -171,26 +171,26 @@ let appManualContext = ""; // <--- NEW: Text manual for Grok
 
 try {
   const rawData = JSON.parse(fs.readFileSync('responses.json', 'utf8'));
-  
-  if (rawData.intents && Array.isArray(rawData.intents)) {
-      // 1. Build Map for Local Serving
-      rawData.intents.forEach(intent => {
-          localResponses[intent.tag] = intent.responses;
-      });
 
-      // 2. Build Text Manual for Grok (Only relevant topics)
-      const manualLines = rawData.intents
-        .filter(i => i.tag.startsWith('HELP_') || i.tag.startsWith('NAV_') || i.tag.startsWith('DEF_'))
-        .map(i => `- Topic: ${i.tag}\n  Info: ${i.responses[0]}`);
-      
-      appManualContext = manualLines.join('\n');
-      console.log(`✅ Loaded Local Responses & Built App Manual (${manualLines.length} topics).`);
+  if (rawData.intents && Array.isArray(rawData.intents)) {
+    // 1. Build Map for Local Serving
+    rawData.intents.forEach(intent => {
+      localResponses[intent.tag] = intent.responses;
+    });
+
+    // 2. Build Text Manual for Grok (Only relevant topics)
+    const manualLines = rawData.intents
+      .filter(i => i.tag.startsWith('HELP_') || i.tag.startsWith('NAV_') || i.tag.startsWith('DEF_'))
+      .map(i => `- Topic: ${i.tag}\n  Info: ${i.responses[0]}`);
+
+    appManualContext = manualLines.join('\n');
+    console.log(`✅ Loaded Local Responses & Built App Manual (${manualLines.length} topics).`);
 
   } else {
-      localResponses = rawData; 
+    localResponses = rawData;
   }
-} catch (e) { 
-  console.log('⚠️ responses.json missing or invalid:', e.message); 
+} catch (e) {
+  console.log('⚠️ responses.json missing or invalid:', e.message);
 }
 
 // --- LOAD DOSM DATA ---
@@ -219,7 +219,7 @@ expertTips.forEach(tip => {
   const keywords = tip.topic.toLowerCase().split(' ')
     .concat(tip.advice.toLowerCase().split(' '))
     .filter(kw => kw.length > 3);
-  
+
   keywords.forEach(kw => {
     if (!tipsIndex.has(kw)) {
       tipsIndex.set(kw, []);
@@ -235,19 +235,19 @@ const app = express();
 app.use(cors());
 app.use(compression({
   filter: (req, res) => {
-    if (req.path === '/chat/stream') return false; 
+    if (req.path === '/chat/stream') return false;
     return compression.filter(req, res);
   }
 }));
 app.use(express.json());
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 const openAI = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
   apiKey: process.env.OPENROUTER_API_KEY,
   httpAgent: new (require('https').Agent)({ keepAlive: true }),
   defaultHeaders: {
-    'HTTP-Referer': 'http://localhost:3000', 
+    'HTTP-Referer': 'http://localhost:3000',
     'X-Title': 'Beruang App'
   }
 });
@@ -309,14 +309,14 @@ Stay helpful, not pushy—direct is key! 🐻
 function getRelevantTips(message) {
   const words = message.toLowerCase().split(' ').filter(w => w.length > 3);
   const tipScores = new Map();
-  
+
   words.forEach(word => {
     const matchedTips = tipsIndex.get(word) || [];
     matchedTips.forEach(tip => {
       tipScores.set(tip, (tipScores.get(tip) || 0) + 1);
     });
   });
-  
+
   return Array.from(tipScores.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
@@ -333,7 +333,7 @@ async function predictTransactionInternal(description) {
 
   const { categoryIndex, subcategoryIndex, maxLen } = transMetadata;
   const sequence = preprocess(description, transMetadata);
-  
+
   const validTokenCount = sequence.filter(t => t > 1).length;
   if (validTokenCount === 0) {
     return {
@@ -346,7 +346,7 @@ async function predictTransactionInternal(description) {
 
   const inputTensor = tf.tensor2d([sequence], [1, maxLen], 'int32');
   const predictions = transModel.predict(inputTensor);
-  
+
   const catPred = Array.isArray(predictions) ? predictions[0] : predictions;
   const subPred = Array.isArray(predictions) ? predictions[1] : null;
 
@@ -358,13 +358,13 @@ async function predictTransactionInternal(description) {
 
   const category = categoryIndex[String(catIdx)] || categoryIndex[catIdx] || 'Unknown';
   const subcategory = subcategoryIndex[String(subIdx)] || subcategoryIndex[subIdx] || 'Unknown';
-  
+
   const catConf = (catData[catIdx] * 100).toFixed(2);
   const subConf = (subData[subIdx] * 100).toFixed(2);
 
   inputTensor.dispose();
   catPred.dispose();
-  if(subPred) subPred.dispose();
+  if (subPred) subPred.dispose();
 
   return {
     category: category.toUpperCase(),
@@ -378,13 +378,13 @@ async function predictIntentInternal(message) {
   if (!message || !message.trim()) return null;
 
   const RED_FLAGS = [
-    'invest', 'crypto', 'stock', 'debt', 'loan', 'buy', 'sell', 
+    'invest', 'crypto', 'stock', 'debt', 'loan', 'buy', 'sell',
     'salary', 'finance', 'money', 'budget', 'save for', 'afford',
     'survive', 'bank', 'insurance', 'tax', 'profit', 'loss', 'worth',
     'bitcoin', 'gold', 'property', 'car', 'house', 'wedding',
     'unrealistic', 'opinion', 'thoughts', 'compare', 'pros and cons'
   ];
-  
+
   const COMPLEX_STARTERS = ['why', 'how', 'what if', 'should i', 'can i', 'explain', 'tell me about'];
   const lowerMsg = message.toLowerCase();
   const hasComplexStarter = COMPLEX_STARTERS.some(s => lowerMsg.startsWith(s));
@@ -401,13 +401,13 @@ async function predictIntentInternal(message) {
 
   const output = await intentExtractor(message, { pooling: 'mean', normalize: true });
   const inputTensor = tf.tensor2d([Array.from(output.data)]);
-  
+
   const prediction = intentModel.predict(inputTensor);
   const oodAnalysis = detectOOD(message, null, prediction, intentMetadata);
-  
+
   const predData = prediction.dataSync();
   const maxIdx = predData.indexOf(Math.max(...predData));
-  
+
   const labelMap = intentMetadata.labelMap || intentMetadata.intentIndex;
   const predictedIntent = labelMap[String(maxIdx)] || labelMap[maxIdx] || 'UNKNOWN';
   const confidence = (predData[maxIdx] * 100).toFixed(2);
@@ -419,12 +419,12 @@ async function predictIntentInternal(message) {
   let logMsg = `[Intent] "${message}" -> ${predictedIntent} (${confidence}%)`;
 
   if (oodAnalysis.isOOD) {
-    finalIntent = 'COMPLEX_ADVICE'; 
+    finalIntent = 'COMPLEX_ADVICE';
     logMsg += ` → 🚨 OOD DETECTED: ${oodAnalysis.reasons.join(', ')} → GROK`;
   } else {
     logMsg += ` → ✅ LOCAL REPLY (passed OOD checks)`;
   }
-  
+
   console.log(logMsg);
 
   return {
@@ -441,7 +441,7 @@ async function predictIntentInternal(message) {
 
 function calculateBudgetData(transactions, userProfile) {
   if (!transactions || !userProfile) return null;
-  
+
   const getMonthKey = (dateStr) => {
     const d = new Date(dateStr);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -454,7 +454,7 @@ function calculateBudgetData(transactions, userProfile) {
   const allMonthlyIncomeTrans = transactions.filter(
     (t) => t.type === 'income' && getMonthKey(t.date) === currentMonthKey
   );
-  
+
   const freshMonthlyIncome = allMonthlyIncomeTrans
     .filter((t) => !t.isCarriedOver)
     .reduce((sum, t) => sum + t.amount, 0);
@@ -503,7 +503,7 @@ function calculateBudgetData(transactions, userProfile) {
   // Pending Savings
   const pendingLeftoverSave = Math.max(0, leftoverTarget - monthlySavedLeftoverRealized);
   const pending20Save = Math.max(0, savingsTarget20 - monthlySaved20Realized);
-  
+
   const displayBalance = currentWalletBalance - pendingLeftoverSave;
 
   return {
@@ -513,27 +513,27 @@ function calculateBudgetData(transactions, userProfile) {
       total: totalMonthlyIncome
     },
     budget: {
-      needs: { 
-        target: needsTarget, 
-        spent: needsSpent, 
+      needs: {
+        target: needsTarget,
+        spent: needsSpent,
         remaining: Math.max(0, needsTarget - needsSpent),
         percentage: needsTarget > 0 ? (needsSpent / needsTarget) * 100 : 0
       },
-      wants: { 
-        target: wantsTarget, 
-        spent: wantsSpent, 
+      wants: {
+        target: wantsTarget,
+        spent: wantsSpent,
         remaining: Math.max(0, wantsTarget - wantsSpent),
         percentage: wantsTarget > 0 ? (wantsSpent / wantsTarget) * 100 : 0
       },
-      savings20: { 
-        target: savingsTarget20, 
-        saved: monthlySaved20Realized, 
+      savings20: {
+        target: savingsTarget20,
+        saved: monthlySaved20Realized,
         pending: pending20Save,
         percentage: savingsTarget20 > 0 ? (monthlySaved20Realized / savingsTarget20) * 100 : 0
       },
-      leftover: { 
-        target: leftoverTarget, 
-        saved: monthlySavedLeftoverRealized, 
+      leftover: {
+        target: leftoverTarget,
+        saved: monthlySavedLeftoverRealized,
         pending: pendingLeftoverSave,
         percentage: leftoverTarget > 0 ? (monthlySavedLeftoverRealized / leftoverTarget) * 100 : 0
       }
@@ -552,7 +552,7 @@ function calculateBudgetData(transactions, userProfile) {
 
 function formatBudgetForRAG(budgetData) {
   if (!budgetData) return '';
-  
+
   return `
 --- CURRENT MONTH BUDGET BREAKDOWN (50/30/20) ---
 Month: ${budgetData.month}
@@ -607,7 +607,7 @@ app.post('/predict-transaction', async (req, res) => {
 
 app.post('/chat/stream', async (req, res) => {
   const requestStart = Date.now();
-  
+
   try {
     const { message, history, transactions, userProfile, budgetContext } = req.body; // ADDED: budgetContext
 
@@ -618,13 +618,13 @@ app.post('/chat/stream', async (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Transfer-Encoding', 'chunked'); 
-    res.flushHeaders(); 
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.flushHeaders();
 
     const sendEvent = (event, data) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      res.flush(); 
+      res.flush();
     };
 
     sendEvent('thinking', { message: 'Processing your request...' });
@@ -652,8 +652,8 @@ Here is my complete user profile for context:
 - Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
 `.trim() : ''),
       (async () => {
-        const stateData = userProfile?.state ? 
-          (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) : 
+        const stateData = userProfile?.state ?
+          (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) :
           dosmRAGData['Nasional'] || '';
         return stateData ? `
 Here is relevant statistical data for my location (from DOSM):
@@ -664,39 +664,39 @@ ${stateData}
 And here is my recent transaction data for context:
 ${JSON.stringify(transactions.slice(0, 10), null, 2)}
 `.trim() : '')
-    ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null)); 
+    ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null));
 
     const intentPrediction = intentResult;
 
     // Check for local response
-    if (intentPrediction && 
-        intentPrediction.intent !== 'COMPLEX_ADVICE' && 
-        intentPrediction.intent !== 'GARBAGE' &&
-        localResponses[intentPrediction.intent]) {
-      
+    if (intentPrediction &&
+      intentPrediction.intent !== 'COMPLEX_ADVICE' &&
+      intentPrediction.intent !== 'GARBAGE' &&
+      localResponses[intentPrediction.intent]) {
+
       console.log(`⚡ Serving Local Response: ${intentPrediction.intent}`);
-      
+
       const responseData = localResponses[intentPrediction.intent];
-      const localMsg = Array.isArray(responseData) 
-          ? responseData[Math.floor(Math.random() * responseData.length)] 
-          : responseData;
+      const localMsg = Array.isArray(responseData)
+        ? responseData[Math.floor(Math.random() * responseData.length)]
+        : responseData;
 
       const words = localMsg.split(' ');
-      
+
       for (let i = 0; i < words.length; i++) {
-        sendEvent('token', { 
+        sendEvent('token', {
           content: words[i] + ' ',
           done: false
         });
-        await new Promise(resolve => setTimeout(resolve, 30)); 
+        await new Promise(resolve => setTimeout(resolve, 30));
       }
-      
-      sendEvent('done', { 
+
+      sendEvent('done', {
         source: 'local',
         intent: intentPrediction.intent,
         response_time_ms: Date.now() - requestStart
       });
-      
+
       return res.end();
     }
 
@@ -729,9 +729,9 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
     const recentHistory = (history || []).slice(-8);
     const messages = [
       { role: 'system', content: SYSTEM_INSTRUCTION },
-      ...recentHistory.map(msg => ({ 
-        role: msg.role === 'model' ? 'assistant' : 'user', 
-        content: msg.parts.map(p => p.text).join('') 
+      ...recentHistory.map(msg => ({
+        role: msg.role === 'model' ? 'assistant' : 'user',
+        content: msg.parts.map(p => p.text).join('')
       })),
       { role: 'user', content: augmentedPrompt }
     ];
@@ -740,21 +740,21 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
       model: "x-ai/grok-4.1-fast",
       messages: messages,
       temperature: 0.5,
-      max_tokens: 150, 
+      max_tokens: 150,
       stream: true
     });
 
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
       if (content) {
-        sendEvent('token', { 
+        sendEvent('token', {
           content: content,
           done: false
         });
       }
     }
 
-    sendEvent('done', { 
+    sendEvent('done', {
       source: 'grok',
       response_time_ms: Date.now() - requestStart
     });
@@ -777,7 +777,7 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
 app.post('/chat', async (req, res) => {
   try {
     const { message, history, transactions, userProfile, budgetContext } = req.body;
-    
+
     if (!message || !message.trim()) {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
@@ -789,7 +789,7 @@ app.post('/chat', async (req, res) => {
     };
 
     const relevantTips = getRelevantTips(message);
-    
+
     const userContext = userProfile ? `
 Here is my complete user profile for context:
 - Name: ${userProfile.name}
@@ -804,8 +804,8 @@ Here is my complete user profile for context:
 - Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
 `.trim() : '';
 
-    const dosmContext = userProfile?.state ? 
-      (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) : 
+    const dosmContext = userProfile?.state ?
+      (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) :
       dosmRAGData['Nasional'] || '';
 
     const transactionContext = transactions && transactions.length > 0 ? `
@@ -839,9 +839,9 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
     const recentHistory = (history || []).slice(-8);
     const messages = [
       { role: 'system', content: SYSTEM_INSTRUCTION },
-      ...recentHistory.map(msg => ({ 
-        role: msg.role === 'model' ? 'assistant' : 'user', 
-        content: msg.parts.map(p => p.text).join('') 
+      ...recentHistory.map(msg => ({
+        role: msg.role === 'model' ? 'assistant' : 'user',
+        content: msg.parts.map(p => p.text).join('')
       })),
       { role: 'user', content: augmentedPrompt }
     ];
@@ -854,8 +854,8 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
     });
 
     const botResponse = completion.choices[0]?.message?.content || "I couldn't generate a response.";
-    
-    res.json({ 
+
+    res.json({
       message: botResponse,
       budget_context_used: !!finalBudgetContext
     });
@@ -886,7 +886,7 @@ app.get('/health', (req, res) => {
 async function loadModels() {
   console.log('------------------------------------------------');
   console.log('🔄 INITIALIZING UNIFIED BERUANG SERVER...');
-  
+
   try {
     if (fs.existsSync(TRANS_METADATA_PATH)) {
       transModel = await tf.loadLayersModel(TRANS_MODEL_PATH);
@@ -903,10 +903,10 @@ async function loadModels() {
     if (fs.existsSync(INTENT_METADATA_PATH)) {
       intentModel = await tf.loadLayersModel(INTENT_MODEL_PATH);
       intentMetadata = await fs.readJson(INTENT_METADATA_PATH);
-      
+
       console.log('⏳ Loading MiniLM Extractor...');
       intentExtractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-      
+
       console.log('✅ Intent Model & Extractor Loaded');
       const labelCount = intentMetadata.labelMap ? Object.keys(intentMetadata.labelMap).length : 0;
       console.log(`   - Loaded ${labelCount} intents`);
@@ -923,7 +923,7 @@ async function warmupConnections() {
   try {
     if (intentModel && intentExtractor) {
       console.log('   ...Pre-heating TensorFlow...');
-      await predictIntentInternal('hello'); 
+      await predictIntentInternal('hello');
       console.log('   ✅ Local AI warmed up');
     } else {
       console.log('   ⚠️  Local AI skipped (Model not loaded)');
@@ -931,7 +931,7 @@ async function warmupConnections() {
   } catch (err) {
     console.log('   ⚠️  Local AI warmup failed:', err.message);
   }
-  
+
   try {
     await openAI.chat.completions.create({
       model: "x-ai/grok-4.1-fast",
@@ -946,7 +946,7 @@ async function warmupConnections() {
 
 async function startServer() {
   await loadModels();
-  
+
   app.listen(PORT, async () => {
     console.log('================================================');
     console.log('🐻 BERUANG ORCHESTRATOR (WITH STREAMING!)');
@@ -973,7 +973,7 @@ async function startServer() {
     console.log(`   - App Manual (RAG): ${appManualContext.length > 0 ? '✅ Loaded for Grok' : '⚠️  Missing'}`);
     console.log(`   - Budget Context: ✅ READY (Frontend-provided)`);
     console.log('================================================');
-    
+
     await warmupConnections();
     console.log('🚀 Server ready with STREAMING support!\n');
   });
