@@ -240,7 +240,7 @@ app.use(compression({
   }
 }));
 app.use(express.json());
-const PORT = process.env.PORT || 3000;
+const PORT = 3000;
 
 const openAI = new OpenAI({
   baseURL: 'https://openrouter.ai/api/v1',
@@ -624,7 +624,7 @@ app.post('/chat/stream', async (req, res) => {
     const sendEvent = (event, data) => {
       res.write(`event: ${event}\n`);
       res.write(`data: ${JSON.stringify(data)}\n\n`);
-      res.flush();
+      if (typeof res.flush === 'function') res.flush();
     };
 
     sendEvent('thinking', { message: 'Processing your request...' });
@@ -744,6 +744,14 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
       stream: true
     });
 
+    const heartbeat = setInterval(() => {
+      sendEvent('heartbeat', { status: 'alive' });
+    }, 15000);
+
+    res.on('close', () => {
+      clearInterval(heartbeat);
+    });
+
     for await (const chunk of stream) {
       const content = chunk.choices[0]?.delta?.content || '';
       if (content) {
@@ -760,11 +768,6 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
     });
 
     res.end();
-
-    const heartbeat = setInterval(() => {
-      sendEvent('heartbeat', { status: 'alive' });
-    }, 15000);
-    res.on('close', () => clearInterval(heartbeat));
 
   } catch (error) {
     console.error('💥 Streaming Error:', error);
