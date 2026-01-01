@@ -476,7 +476,11 @@ function calculateBudgetData(transactions, userProfile) {
 
   // Savings
   const savingsTarget20 = freshMonthlyIncome * 0.2;
-  const leftoverTarget = userProfile.allocatedSavingsTarget || 0;
+
+  // Deriving leftoverTarget from transactions instead of profile
+  const leftoverTarget = allMonthlyIncomeTrans
+    .filter((t) => t.isCarriedOver)
+    .reduce((sum, t) => sum + t.amount, 0);
 
   const monthlySaved20Realized = monthlyExpenses
     .filter((t) => t.category === 'savings' && t.name === 'Monthly Savings')
@@ -504,7 +508,7 @@ function calculateBudgetData(transactions, userProfile) {
   const pendingLeftoverSave = Math.max(0, leftoverTarget - monthlySavedLeftoverRealized);
   const pending20Save = Math.max(0, savingsTarget20 - monthlySaved20Realized);
 
-  const displayBalance = currentWalletBalance - pendingLeftoverSave;
+  const displayBalance = totalMonthlyIncome - totalExpenses - totalMonthlySaved - pendingLeftoverSave;
 
   return {
     month: currentMonthKey,
