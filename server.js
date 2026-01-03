@@ -822,26 +822,21 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
       - Return ONLY the JSON. No markdown backticks.
     `;
 
-    const response = await openAI.chat.completions.create({
-      model: "google/gemini-2.0-flash-exp:free",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`,
-              },
-            },
-          ],
-        },
-      ],
-      response_format: { type: "json_object" }
+    // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
+    const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+
+    const response = await axios.post(url, {
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "image/jpeg", data: base64Image } }
+        ]
+      }]
     });
 
-    let result = JSON.parse(response.choices[0].message.content);
+    const aiText = response.data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+    let result = JSON.parse(aiText);
 
     // Defensive: If AI returns an array or unexpected structure, extract the first item
     if (Array.isArray(result)) result = result[0];
@@ -909,13 +904,18 @@ app.post('/import-data', async (req, res) => {
       "${text}"
     `;
 
-    const response = await openAI.chat.completions.create({
-      model: "google/gemini-2.0-flash-exp:free",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" }
+    // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
+    const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+
+    const response = await axios.post(url, {
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
     });
 
-    const result = JSON.parse(response.choices[0].message.content);
+    const aiText = response.data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+    const result = JSON.parse(aiText);
     console.log(`✅ Bulk Import successful: Found ${result.transactions?.length || 0} items.`);
     res.json(result);
 
