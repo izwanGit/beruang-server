@@ -824,7 +824,8 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+    // Note: Using Gemini 2.0 Flash Experimental (Free)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
@@ -855,7 +856,13 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
     res.json(result);
 
   } catch (error) {
-    console.error('💥 Scan Error:', error);
+    console.error('💥 Scan Error Details:', error.response?.data || error.message);
+
+    if (error.response?.data?.error?.code === 404) {
+      return res.status(404).json({
+        error: `Google AI Model not found. Details: ${JSON.stringify(error.response?.data)}`
+      });
+    }
 
     if (error.message?.includes('free-models-per-day')) {
       return res.status(429).json({
@@ -906,7 +913,8 @@ app.post('/import-data', async (req, res) => {
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+    // Note: Using Gemini 2.0 Flash Experimental (Free)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
