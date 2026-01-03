@@ -824,8 +824,8 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    // Note: Using Gemini 2.0 Flash-Lite (High Availability)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-preview-02-05:generateContent?key=${googleApiKey}`;
+    // Note: Using Gemini 2.0 Flash-Lite (Stable)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-001:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
@@ -913,8 +913,8 @@ app.post('/import-data', async (req, res) => {
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    // Note: Using Gemini 2.0 Flash-Lite (High Availability)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-preview-02-05:generateContent?key=${googleApiKey}`;
+    // Note: Using Gemini 2.0 Flash-Lite (Stable)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-001:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
