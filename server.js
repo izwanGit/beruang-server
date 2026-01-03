@@ -862,13 +862,19 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
   } catch (error) {
     console.error('💥 Scan Error:', error);
 
+    if (error.message?.includes('free-models-per-day')) {
+      return res.status(429).json({
+        error: 'OpenRouter daily free limit reached! 🐻🚫 Try a different API key or wait until tomorrow.'
+      });
+    }
+
     if (error.status === 429) {
       return res.status(429).json({
         error: 'AI is currently busy (Rate Limited). Please try again in 15-30 seconds! ⏳🐻'
       });
     }
 
-    res.status(500).json({ error: 'Failed to process receipt image 🐻💔' });
+    res.status(500).json({ error: 'Failed to process receipt 🐻💔' });
   }
 });
 
@@ -915,6 +921,13 @@ app.post('/import-data', async (req, res) => {
 
   } catch (error) {
     console.error('💥 Import Error:', error);
+
+    if (error.message?.includes('free-models-per-day')) {
+      return res.status(429).json({
+        error: 'OpenRouter daily free limit reached! 🐻🚫 Try a different API key or wait until tomorrow.'
+      });
+    }
+
     res.status(500).json({ error: 'Failed to parse bulk data 🐻💔' });
   }
 });
