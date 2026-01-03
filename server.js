@@ -670,10 +670,36 @@ Here is relevant statistical data for my location (from DOSM):
 ${stateData}
 `.trim() : '';
       })(),
-      Promise.resolve(transactions && transactions.length > 0 ? `
-And here is my recent transaction data for context:
-${JSON.stringify(transactions.slice(0, 10), null, 2)}
-`.trim() : '')
+      Promise.resolve((() => {
+        if (!transactions || transactions.length === 0) return '';
+
+        // Get today's date string (YYYY-MM-DD)
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+        // Filter today's transactions
+        const todaysTransactions = transactions.filter(t => {
+          if (!t.date) return false;
+          const txDate = t.date.split('T')[0]; // Handle ISO format
+          return txDate === todayStr;
+        });
+
+        let context = `--- TRANSACTION CONTEXT ---\n`;
+        context += `Current Date: ${todayStr} (Use this to interpret "today", "yesterday", "last week", specific dates, or months)\n`;
+        context += `Current Month: ${today.toLocaleString('en-US', { month: 'long', year: 'numeric' })}\n`;
+
+        if (todaysTransactions.length > 0) {
+          context += `\nTODAY'S TRANSACTIONS (${todaysTransactions.length} items):\n`;
+          context += JSON.stringify(todaysTransactions, null, 2);
+        } else {
+          context += `\nTODAY'S TRANSACTIONS: None logged yet.\n`;
+        }
+
+        context += `\nALL RECENT TRANSACTIONS (check dates to answer any date-specific query):\n`;
+        context += JSON.stringify(transactions.slice(0, 15), null, 2);
+
+        return context.trim();
+      })())
     ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null));
 
     const intentPrediction = intentResult;
@@ -978,10 +1004,34 @@ Here is my complete user profile for context:
       (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) :
       dosmRAGData['Nasional'] || '';
 
-    const transactionContext = transactions && transactions.length > 0 ? `
-And here is my recent transaction data for context:
-${JSON.stringify(transactions.slice(0, 10), null, 2)}
-`.trim() : '';
+    const transactionContext = (() => {
+      if (!transactions || transactions.length === 0) return '';
+
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+      const todaysTransactions = transactions.filter(t => {
+        if (!t.date) return false;
+        const txDate = t.date.split('T')[0];
+        return txDate === todayStr;
+      });
+
+      let context = `--- TRANSACTION CONTEXT ---\n`;
+      context += `Current Date: ${todayStr} (Use this to interpret "today", "yesterday", "last week", specific dates, or months)\n`;
+      context += `Current Month: ${today.toLocaleString('en-US', { month: 'long', year: 'numeric' })}\n`;
+
+      if (todaysTransactions.length > 0) {
+        context += `\nTODAY'S TRANSACTIONS (${todaysTransactions.length} items):\n`;
+        context += JSON.stringify(todaysTransactions, null, 2);
+      } else {
+        context += `\nTODAY'S TRANSACTIONS: None logged yet.\n`;
+      }
+
+      context += `\nALL RECENT TRANSACTIONS (check dates to answer any date-specific query):\n`;
+      context += JSON.stringify(transactions.slice(0, 15), null, 2);
+
+      return context.trim();
+    })();
 
     const tipsContext = relevantTips.length > 0 ? `
 --- EXPERT FINANCIAL KNOWLEDGE BASE ---
