@@ -13,6 +13,8 @@ const path = require('path');
 const compression = require('compression');
 const tf = require('@tensorflow/tfjs-node');
 const { pipeline } = require('@xenova/transformers');
+const multer = require('multer');
+const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
 
 // ==========================================
 // 🧠 1. AI BRAIN CONFIGURATION & VARS
@@ -239,7 +241,8 @@ app.use(compression({
     return compression.filter(req, res);
   }
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 const PORT = 3000;
 
 const openAI = new OpenAI({
@@ -781,6 +784,138 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
     res.write(`event: error\n`);
     res.write(`data: ${JSON.stringify({ error: 'Stream failed 🐻💔' })}\n\n`);
     res.end();
+  }
+});
+
+app.post('/scan-receipt', upload.single('image'), async (req, res) => {
+  try {
+    let base64Image;
+
+    if (req.file) {
+      base64Image = req.file.buffer.toString('base64');
+    } else if (req.body.image) {
+      base64Image = req.body.image;
+    } else {
+      return res.status(400).json({ error: 'No image provided' });
+    }
+
+    console.log('🖼️ Scanning receipt with Gemini Vision...');
+
+    const prompt = `
+      Analyze this receipt image and extract details in STRICT JSON format.
+      
+      Extraction Logic:
+      1. Merchant: Look for the business/shop/stall name at the very TOP of the receipt. 
+      2. Priority Fallback: If the shop name is cut off or missing, look at the first few items listed. Use the most prominent item name as the "Merchant" or "Description" so the user knows what it was for.
+      3. Items like "Retail/Takeaway" are NOT merchant names. Ignore them.
+      
+      JSON Structure:
+      {
+        "amount": number,
+        "merchant": "string",
+        "description": "string" (A 2-3 word summary of what was bought),
+        "date": "YYYY-MM-DD"
+      }
+      
+      Context Rules:
+      - Works for ANY merchant (Fast food, local stalls like Kedai Tomyam, Grocery stores, etc).
+      - Return ONLY the JSON. No markdown backticks.
+    `;
+
+    const response = await openAI.chat.completions.create({
+      model: "google/gemini-2.0-flash-exp:free",
+      messages: [
+        {
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            {
+              type: "image_url",
+              image_url: {
+                url: `data:image/jpeg;base64,${base64Image}`,
+              },
+            },
+          ],
+        },
+      ],
+      response_format: { type: "json_object" }
+    });
+
+    let result = JSON.parse(response.choices[0].message.content);
+
+    // Defensive: If AI returns an array or unexpected structure, extract the first item
+    if (Array.isArray(result)) result = result[0];
+    if (result.transactions && Array.isArray(result.transactions)) result = result.transactions[0];
+
+    // --- INTEGRATE YOUR OWN AI BRAIN ---
+    // Instead of trusting the Cloud AI, we use your local Beruang TensorFlow categorization!
+    const query = result.description || result.merchant || 'Unknown';
+    const prediction = await predictTransactionInternal(query);
+
+    result.category = prediction.category;
+    result.subCategory = prediction.subCategory;
+    result.isAi = prediction.isAi;
+
+    console.log(`✅ Scan successful. Local AI categorized "${query}" as ${result.category}`);
+    res.json(result);
+
+  } catch (error) {
+    console.error('💥 Scan Error:', error);
+
+    if (error.status === 429) {
+      return res.status(429).json({
+        error: 'AI is currently busy (Rate Limited). Please try again in 15-30 seconds! ⏳🐻'
+      });
+    }
+
+    res.status(500).json({ error: 'Failed to process receipt image 🐻💔' });
+  }
+});
+
+app.post('/import-data', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'No text provided' });
+
+    console.log('📄 Parsing bulk data with Gemini...');
+
+    const prompt = `
+      Analyze the following text and extract a list of transactions. 
+      The text might be messy (from Excel, Notes, or Chat).
+      Return a JSON object with a "transactions" key containing an array of objects:
+      {
+        "transactions": [
+          {
+            "name": "string (Description)",
+            "amount": number (Amount spent),
+            "date": "YYYY-MM-DD",
+            "category": "needs" | "wants" | "savings"
+          }
+        ]
+      }
+      Rules:
+      1. Correct common typos.
+      2. If date is missing, omit it or use current date if mentioned.
+      3. For category, follow 50/30/20 rule: essentials (needs), lifestyle (wants), savings/debt (savings).
+      4. RETURN ONLY JSON.
+      
+      Text to parse:
+      "${text}"
+    `;
+
+    const response = await openAI.chat.completions.create({
+      model: "google/gemini-2.0-flash-exp:free",
+      messages: [{ role: "user", content: prompt }],
+      response_format: { type: "json_object" }
+    });
+
+    const result = JSON.parse(response.choices[0].message.content);
+    console.log(`✅ Bulk Import successful: Found ${result.transactions?.length || 0} items.`);
+    res.json(result);
+
+  } catch (error) {
+    console.error('💥 Import Error:', error);
+    res.status(500).json({ error: 'Failed to parse bulk data 🐻💔' });
   }
 });
 
