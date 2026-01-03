@@ -2,248 +2,752 @@
   "intents": [
     {
       "tag": "GREETING",
-      "patterns": ["Hi", "Hello", "Hey", "Good morning", "Selamat pagi", "Yo Beruang", "Start", "Hola", "Greetings", "Hey bear", "Are you there?"],
-      "responses": ["Hello! I'm Beruang 🐻. How can I help you manage your money today?", "Hi there! Ready to get your finances sorted? 💰"]
+      "patterns": [
+        "Hi",
+        "Hello",
+        "Hey",
+        "Good morning",
+        "Selamat pagi",
+        "Yo Beruang",
+        "Start",
+        "Hola",
+        "Greetings",
+        "Hey bear",
+        "Are you there?"
+      ],
+      "responses": [
+        "Hello! I'm Beruang 🐻. How can I help you manage your money today?",
+        "Hi there! Ready to get your finances sorted? 💰"
+      ]
     },
     {
       "tag": "TESTING",
-      "patterns": ["testing", "test", "is this working", "mic check", "hello 123", "system check"],
-      "responses": ["System online! 🐻 Beruang is listening and ready to help.", "Loud and clear! I'm working perfectly."]
+      "patterns": [
+        "testing",
+        "test",
+        "is this working",
+        "mic check",
+        "hello 123",
+        "system check"
+      ],
+      "responses": [
+        "System online! 🐻 Beruang is listening and ready to help.",
+        "Loud and clear! I'm working perfectly."
+      ]
     },
     {
       "tag": "BYE",
-      "patterns": ["Bye", "Goodbye", "See you", "Later", "Signing off", "Good night", "Exit", "End chat"],
-      "responses": ["Goodbye! Don't forget to track your expenses! 👋", "See you later! Stay financially savvy! 💸"]
+      "patterns": [
+        "Bye",
+        "Goodbye",
+        "See you",
+        "Later",
+        "Signing off",
+        "Good night",
+        "Exit",
+        "End chat"
+      ],
+      "responses": [
+        "Goodbye! Don't forget to track your expenses! 👋",
+        "See you later! Stay financially savvy! 💸"
+      ]
     },
     {
       "tag": "THANK_YOU",
-      "patterns": ["Thanks", "Thank you", "Terima kasih", "Good job", "Thx", "Appreciate it", "Thanks bear"],
-      "responses": ["Sama-sama! 🐻 Happy to help!", "You're welcome! Let's keep those finances green! 💚"]
+      "patterns": [
+        "Thanks",
+        "Thank you",
+        "Terima kasih",
+        "Good job",
+        "Thx",
+        "Appreciate it",
+        "Thanks bear"
+      ],
+      "responses": [
+        "Sama-sama! 🐻 Happy to help!",
+        "You're welcome! Let's keep those finances green! 💚"
+      ]
     },
     {
       "tag": "WHO_ARE_YOU",
-      "patterns": ["Who are you?", "What is your name?", "Are you AI?", "Who created you?", "Tell me about yourself"],
-      "responses": ["I am Beruang, an AI financial assistant built by **Muhammad Izwan bin Ahmad** for his UiTM Thesis! 🎓"]
+      "patterns": [
+        "Who are you?",
+        "What is your name?",
+        "Are you AI?",
+        "Who created you?",
+        "Tell me about yourself"
+      ],
+      "responses": [
+        "I am Beruang, an AI financial assistant built by **Muhammad Izwan bin Ahmad** for his UiTM Thesis! 🎓"
+      ]
     },
     {
       "tag": "WHY_BERUANG",
-      "patterns": ["Why Beruang?", "Meaning of name", "Is it a bear?", "Funny name", "Name origin", "Why that name?"],
-      "responses": ["It's a pun! 🤣 'Beruang' (Bear) sounds like 'Ber-wang' (Has Money). The bear is the richest animal! 🐻💸"]
+      "patterns": [
+        "Why Beruang?",
+        "Meaning of name",
+        "Is it a bear?",
+        "Funny name",
+        "Name origin",
+        "Why that name?"
+      ],
+      "responses": [
+        "It's a pun! 🤣 'Beruang' (Bear) sounds like 'Ber-wang' (Has Money). The bear is the richest animal! 🐻💸"
+      ]
     },
     {
       "tag": "DEVELOPER_INFO",
-      "patterns": ["Who made this?", "Developer name", "Supervisor", "University", "FYP details", "Created by", "Who built this?"],
-      "responses": ["Developed by **Muhammad Izwan bin Ahmad** under **Dr. Khairulliza binti Ahmad Salleh** at **UiTM**. 🏛️"]
+      "patterns": [
+        "Who made this?",
+        "Developer name",
+        "Supervisor",
+        "University",
+        "FYP details",
+        "Created by",
+        "Who built this?"
+      ],
+      "responses": [
+        "Developed by **Muhammad Izwan bin Ahmad** under **Dr. Khairulliza binti Ahmad Salleh** at **UiTM**. 🏛️"
+      ]
     },
     {
       "tag": "APP_PURPOSE",
-      "patterns": ["What does this app do?", "Function of app", "Why use this?", "App features", "How does it help?"],
-      "responses": ["Beruang helps you budget (50/30/20), track expenses, and get AI financial advice to avoid stress! 📉➡️📈"]
+      "patterns": [
+        "What does this app do?",
+        "Function of app",
+        "Why use this?",
+        "App features",
+        "How does it help?"
+      ],
+      "responses": [
+        "Beruang helps you budget (50/30/20), track expenses, and get AI financial advice to avoid stress! 📉➡️📈"
+      ]
     },
     {
       "tag": "TARGET_AUDIENCE",
-      "patterns": ["Who is this for?", "Is it for students?", "Target user", "Age group", "Is this for me?"],
-      "responses": ["Designed for **young adults (18-30)**, especially students and fresh grads starting their financial journey! 🎓"]
+      "patterns": [
+        "Who is this for?",
+        "Is it for students?",
+        "Target user",
+        "Age group",
+        "Is this for me?"
+      ],
+      "responses": [
+        "Designed for **young adults (18-30)**, especially students and fresh grads starting their financial journey! 🎓"
+      ]
     },
     {
       "tag": "DATA_SECURITY",
-      "patterns": ["Is data safe?", "Secure?", "Privacy policy", "Where is data stored?", "Do you steal my data?"],
-      "responses": ["Your data is secure in **Google Firebase**. 🔒 We do NOT store bank logins; everything is manual for safety."]
+      "patterns": [
+        "Is data safe?",
+        "Secure?",
+        "Privacy policy",
+        "Where is data stored?",
+        "Do you steal my data?"
+      ],
+      "responses": [
+        "Your data is secure in **Google Firebase**. 🔒 We do NOT store bank logins; everything is manual for safety."
+      ]
     },
     {
       "tag": "BANK_LINKING",
-      "patterns": ["Link bank?", "Connect Maybank?", "Sync account?", "Auto track?", "CIMB link?", "Can I connect bank?"],
-      "responses": ["No bank linking! 🚫 You enter transactions manually. This keeps it secure and makes you more 'mindful' of spending."]
+      "patterns": [
+        "Link bank?",
+        "Connect Maybank?",
+        "Sync account?",
+        "Auto track?",
+        "CIMB link?",
+        "Can I connect bank?"
+      ],
+      "responses": [
+        "No bank linking! 🚫 You enter transactions manually. This keeps it secure and makes you more 'mindful' of spending."
+      ]
     },
     {
       "tag": "INTERNET_REQ",
-      "patterns": ["Offline mode?", "Need internet?", "No wifi?", "Works offline?", "Do I need data?"],
-      "responses": ["I need **internet** ☁️ to chat and sync your data. I'm a cloud-based bear!"]
+      "patterns": [
+        "Offline mode?",
+        "Need internet?",
+        "No wifi?",
+        "Works offline?",
+        "Do I need data?"
+      ],
+      "responses": [
+        "I need **internet** ☁️ to chat and sync your data. I'm a cloud-based bear!"
+      ]
     },
     {
       "tag": "NAV_HOME",
-      "patterns": ["Go to home", "Back to dashboard", "Main screen", "Show home"],
-      "responses": ["Tap the **Home** icon 🏠 in the bottom navigation bar to return to your dashboard."]
+      "patterns": [
+        "Go to home",
+        "Back to dashboard",
+        "Main screen",
+        "Show home"
+      ],
+      "responses": [
+        "Tap the **Home** icon 🏠 in the bottom navigation bar to return to your dashboard."
+      ]
     },
     {
       "tag": "NAV_EXPENSES",
-      "patterns": ["Show expenses", "Go to transaction log", "View history", "My spending", "Transaction list"],
-      "responses": ["Tap the **Expenses** tab 📊 to see your full transaction history and charts!"]
+      "patterns": [
+        "Show expenses",
+        "Go to transaction log",
+        "View history",
+        "My spending",
+        "Transaction list"
+      ],
+      "responses": [
+        "Tap the **Expenses** tab 📊 to see your full transaction history and charts!"
+      ]
     },
     {
       "tag": "NAV_PROFILE",
-      "patterns": ["Go to profile", "My account", "Settings", "Edit user", "User info"],
-      "responses": ["Tap the **Profile** tab 👤 to edit your details or avatar."]
+      "patterns": [
+        "Go to profile",
+        "My account",
+        "Settings",
+        "Edit user",
+        "User info"
+      ],
+      "responses": [
+        "Tap the **Profile** tab 👤 to edit your details or avatar."
+      ]
     },
     {
       "tag": "NAV_CHATBOT",
-      "patterns": ["Where is chat?", "Go to bot", "Ask AI", "Open chat"],
-      "responses": ["You are here! But you can always tap the **Chatbot** icon 💬 to come back."]
+      "patterns": [
+        "Where is chat?",
+        "Go to bot",
+        "Ask AI",
+        "Open chat"
+      ],
+      "responses": [
+        "You are here! But you can always tap the **Chatbot** icon 💬 to come back."
+      ]
     },
     {
       "tag": "HELP_ADD_TRANSACTION",
-      "patterns": ["How to add expense", "Add transaction", "Record spending", "New purchase", "Where to add cost", "I spent money"],
-      "responses": ["Tap the **'+'** button on Home or Expenses. Enter amount & description. My AI will auto-categorize it! 📝"]
+      "patterns": [
+        "How to add expense",
+        "Add transaction",
+        "Record spending",
+        "New purchase",
+        "Where to add cost",
+        "I spent money"
+      ],
+      "responses": [
+        "Tap the **'+'** button on Home or Expenses. Enter amount & description. My AI will auto-categorize it! 📝"
+      ]
     },
     {
       "tag": "HELP_ADD_INCOME",
-      "patterns": ["Add income", "Add salary", "Got paid", "Deposit money", "Where to put salary", "Enter earnings"],
-      "responses": ["Go to **'Add Money'**. Enter amount & description. You can also allocate it over months! 💵"]
+      "patterns": [
+        "Add income",
+        "Add salary",
+        "Got paid",
+        "Deposit money",
+        "Where to put salary",
+        "Enter earnings"
+      ],
+      "responses": [
+        "Go to **'Add Money'**. Enter amount & description. You can also allocate it over months! 💵"
+      ]
     },
     {
       "tag": "HELP_INCOME_ALLOCATION",
-      "patterns": ["What is allocation?", "Split income?", "Scholarship 6 months", "Lump sum", "Divide salary", "How allocation works"],
-      "responses": ["💡 **Feature:** Enter '6' in the allocation box to split a lump sum (like PTPTN) over 6 months of budget!"]
+      "patterns": [
+        "What is allocation?",
+        "Split income?",
+        "Scholarship 6 months",
+        "Lump sum",
+        "Divide salary",
+        "How allocation works"
+      ],
+      "responses": [
+        "💡 **Feature:** Enter '6' in the allocation box to split a lump sum (like PTPTN) over 6 months of budget!"
+      ]
     },
     {
       "tag": "HELP_SAVINGS_SCREEN",
-      "patterns": ["How to save?", "Savings screen", "20% goal", "Add to savings", "Savings bar", "How savings works"],
-      "responses": ["The Savings Screen tracks your **20% Goal** and **Leftover Goal**. Tap 'Add to Savings' to lock that money away! 🍯"]
+      "patterns": [
+        "How to save?",
+        "Savings screen",
+        "20% goal",
+        "Add to savings",
+        "Savings bar",
+        "How savings works",
+        "Savings Mission",
+        "20 percent mission"
+      ],
+      "responses": [
+        "The Savings Screen tracks your **20% Mission** (from income) and **Leftover Goal** (rollover). Tap 'Add to Savings' to secure your future! 🍯"
+      ]
     },
     {
       "tag": "HELP_WITHDRAW_SAVINGS",
-      "patterns": ["Withdraw savings?", "Take money out", "Emergency fund use", "Move to budget", "Use savings"],
-      "responses": ["Tap **'Withdraw'** in Savings. 'Move to Budget' for spending, or 'Emergency' to remove it permanently. 🚨"]
+      "patterns": [
+        "Withdraw savings?",
+        "Take money out",
+        "Emergency fund use",
+        "Move to budget",
+        "Use savings"
+      ],
+      "responses": [
+        "Tap **'Withdraw'** in Savings. 'Move to Budget' for spending, or 'Emergency' to remove it permanently. 🚨"
+      ]
     },
     {
       "tag": "HELP_EDIT_TRANSACTION",
-      "patterns": ["Edit transaction", "Change expense", "Fix mistake", "Wrong amount", "Update spending"],
-      "responses": ["Go to the **Expenses** tab, tap on the transaction you want to fix, and select Edit. ✏️"]
+      "patterns": [
+        "Edit transaction",
+        "Change expense",
+        "Fix mistake",
+        "Wrong amount",
+        "Update spending"
+      ],
+      "responses": [
+        "Go to the **Expenses** tab, tap on the transaction you want to fix, and select Edit. ✏️"
+      ]
     },
     {
       "tag": "HELP_DELETE_TRANSACTION",
-      "patterns": ["Delete transaction", "Remove expense", "Clear entry", "Mistake entry", "Cancel spending"],
-      "responses": ["Swipe left on a transaction in the Expenses list (or tap it) to **Delete**. 🗑️"]
+      "patterns": [
+        "Delete transaction",
+        "Remove expense",
+        "Clear entry",
+        "Mistake entry",
+        "Cancel spending"
+      ],
+      "responses": [
+        "Swipe left on a transaction in the Expenses list (or tap it) to **Delete**. 🗑️"
+      ]
     },
     {
       "tag": "HELP_AI_CATEGORIZATION",
-      "patterns": ["How does categorization work?", "Auto category", "Smart classification", "Does AI sort spending?", "AI category"],
-      "responses": ["I use a smart AI model (MiniLM) to read your description! 🧠 'KFC' becomes 'Wants', 'TNB' becomes 'Needs'."]
+      "patterns": [
+        "How does categorization work?",
+        "Auto category",
+        "Smart classification",
+        "Does AI sort spending?",
+        "AI category"
+      ],
+      "responses": [
+        "I use our smart **Beruang AI** to read your descriptions! 🧠 It automatically assigns categories (Needs/Wants/Savings) so you don't have to."
+      ]
+    },
+    {
+      "tag": "HELP_INITIAL_BALANCE",
+      "patterns": [
+        "Initial balance",
+        "First time setup",
+        "Wallet start",
+        "Enter starting money",
+        "Starting balance",
+        "Carry over from wallet"
+      ],
+      "responses": [
+        "When you first start, Beruang asks for your **Initial Balance**. This is the cash you already have in your wallet/bank! 💸"
+      ]
+    },
+    {
+      "tag": "HELP_REBALANCING",
+      "patterns": [
+        "What is rebalancing?",
+        "Month end",
+        "Leftover money",
+        "Carry over next month",
+        "Allocate balance",
+        "What happens at end of month"
+      ],
+      "responses": [
+        "At the end of each month, Beruang 'rebalances'. Any leftover money moves to your **Savings Mission** for next month! 🔄"
+      ]
     },
     {
       "tag": "HELP_RESET_DATA",
-      "patterns": ["Reset data", "Delete account", "Clear all", "Start over", "Retake onboarding", "Reset profile"],
-      "responses": ["Go to **Profile > Retake Onboarding** to reset your financial profile and goals. 🔄"]
+      "patterns": [
+        "Reset data",
+        "Delete account",
+        "Clear all",
+        "Start over",
+        "Retake onboarding",
+        "Reset profile"
+      ],
+      "responses": [
+        "Go to **Profile > Retake Onboarding** to reset your financial profile and goals. 🔄"
+      ]
     },
     {
       "tag": "HELP_RECEIPT_SCAN",
-      "patterns": ["Scan receipt?", "Camera feature?", "Upload photo?", "Can I scan bills?", "OCR"],
-      "responses": ["Receipt scanning is coming soon! 📸 For now, please enter transactions manually."]
+      "patterns": [
+        "Scan receipt",
+        "Camera feature",
+        "Upload photo",
+        "Can I scan bills",
+        "OCR",
+        "Take picture of receipt"
+      ],
+      "responses": [
+        "Tap the **Camera** icon! 📸 My Gemini-Vision AI will extract the merchant, amount, and category for you instantly."
+      ]
+    },
+    {
+      "tag": "HELP_GAMIFICATION_XP",
+      "patterns": [
+        "How to get XP?",
+        "XP rewards",
+        "Gain experience",
+        "Level up guide",
+        "XP table",
+        "How to grow bear"
+      ],
+      "responses": [
+        "Log Transaction: **50 XP** 📝, Save RM1: **2 XP** 💰, Chat Session: **100 XP** 💬, Daily Check-in: **20 XP** 🐻."
+      ]
+    },
+    {
+      "tag": "HELP_GAMIFICATION_LEVELS",
+      "patterns": [
+        "Max level",
+        "Evolution stages",
+        "How many levels",
+        "Bear stages",
+        "Level progress",
+        "Evolution list"
+      ],
+      "responses": [
+        "There are **13 Evolution Stages**! 🐻✨ From a tiny cub to the Ultimate Golden Bear. Can you reach Level 13?"
+      ]
+    },
+    {
+      "tag": "HELP_GAMIFICATION_PENALTY",
+      "patterns": [
+        "Penalty",
+        "Lose XP",
+        "Minus XP",
+        "Overspending hit",
+        "Can I lose levels",
+        "Why XP dropped"
+      ],
+      "responses": [
+        "Careful! ⚠️ Overspending your budget gives a **-200 XP penalty**. Stay disciplined to keep your bear growing!"
+      ]
+    },
+    {
+      "tag": "HELP_KNOWLEDGE_BASE",
+      "patterns": [
+        "Saved advice",
+        "Knowledge Base",
+        "View saved chat",
+        "Where is my advice",
+        "Saved widgets"
+      ],
+      "responses": [
+        "Go to **Knowledge Base** 📚 to see your saved advice! It even renders the charts and widgets visually now."
+      ]
     },
     {
       "tag": "DEF_50_30_20",
-      "patterns": ["What is 50/30/20?", "Budget rule", "Explain rule", "Percentages", "Budget method"],
-      "responses": ["**50% Needs** (Rent/Food), **30% Wants** (Fun), **20% Savings** (Future). The golden rule of budgeting! 🥇"]
+      "patterns": [
+        "What is 50/30/20?",
+        "Budget rule",
+        "Explain rule",
+        "Percentages",
+        "Budget method"
+      ],
+      "responses": [
+        "**50% Needs** (Rent/Food), **30% Wants** (Fun), **20% Savings** (Future). The golden rule of budgeting! 🥇"
+      ]
     },
     {
       "tag": "DEF_NEEDS",
-      "patterns": ["Define Needs", "What are needs?", "Is rent a need?", "Examples of needs", "Essential expenses"],
-      "responses": ["**Needs (50%)**: Essentials you can't live/work without. Rent, TNB, Water, Groceries, Petrol. 🏠"]
+      "patterns": [
+        "Define Needs",
+        "What are needs?",
+        "Is rent a need?",
+        "Examples of needs",
+        "Essential expenses"
+      ],
+      "responses": [
+        "**Needs (50%)**: Essentials you can't live/work without. Rent, TNB, Water, Groceries, Petrol. 🏠"
+      ]
     },
     {
       "tag": "DEF_WANTS",
-      "patterns": ["Define Wants", "What are wants?", "Is Netflix a want?", "Coffee need or want?", "Examples of wants"],
-      "responses": ["**Wants (30%)**: Fun stuff! Netflix, Boba, fancy dinners, new gadgets. Nice to have, not survival. 🎮"]
+      "patterns": [
+        "Define Wants",
+        "What are wants?",
+        "Is Netflix a want?",
+        "Coffee need or want?",
+        "Examples of wants"
+      ],
+      "responses": [
+        "**Wants (30%)**: Fun stuff! Netflix, Boba, fancy dinners, new gadgets. Nice to have, not survival. 🎮"
+      ]
     },
     {
       "tag": "DEF_SAVINGS_DEF",
-      "patterns": ["Define Savings", "What are savings?", "Why save?", "Savings definition"],
-      "responses": ["**Savings (20%)**: Paying your future self. Emergency Fund, Investments, EPF. 💰"]
+      "patterns": [
+        "Define Savings",
+        "What are savings?",
+        "Why save?",
+        "Savings definition"
+      ],
+      "responses": [
+        "**Savings (20%)**: Paying your future self. Emergency Fund, Investments, EPF. 💰"
+      ]
     },
     {
       "tag": "DEF_EMERGENCY_FUND",
-      "patterns": ["What is emergency fund?", "Emergency savings", "Why need emergency fund?", "How much emergency fund?"],
-      "responses": ["Cash for unexpected disasters (Car breakdown, Medical). Aim for 3-6 months of expenses! 🚑"]
+      "patterns": [
+        "What is emergency fund?",
+        "Emergency savings",
+        "Why need emergency fund?",
+        "How much emergency fund?"
+      ],
+      "responses": [
+        "Cash for unexpected disasters (Car breakdown, Medical). Aim for 3-6 months of expenses! 🚑"
+      ]
     },
     {
       "tag": "DEF_INFLATION",
-      "patterns": ["What does inflation mean?", "Define inflation", "Explain inflation concept", "Why things expensive?", "Meaning of inflation"],
-      "responses": ["Inflation is the general increase in prices over time, making your money worth less. That's why we invest! 🎈"]
+      "patterns": [
+        "What does inflation mean?",
+        "Define inflation",
+        "Explain inflation concept",
+        "Why things expensive?",
+        "Meaning of inflation"
+      ],
+      "responses": [
+        "Inflation is the general increase in prices over time, making your money worth less. That's why we invest! 🎈"
+      ]
     },
     {
       "tag": "DEF_COMPOUND_INTEREST",
-      "patterns": ["What is compound interest?", "Compounding", "Magic of compounding", "Interest on interest"],
-      "responses": ["It's earning interest on your interest! 📈 Start early, and your money grows exponentially over time."]
+      "patterns": [
+        "What is compound interest?",
+        "Compounding",
+        "Magic of compounding",
+        "Interest on interest"
+      ],
+      "responses": [
+        "It's earning interest on your interest! 📈 Start early, and your money grows exponentially over time."
+      ]
     },
     {
       "tag": "DEF_ASB",
-      "patterns": ["What is ASB?", "Amanah Saham Bumiputera", "Is ASB good?", "ASB investing"],
-      "responses": ["ASB is a low-risk unit trust fund for Malaysian Bumiputeras. It offers consistent dividends and fixed price units. 📉"]
+      "patterns": [
+        "What is ASB?",
+        "Amanah Saham Bumiputera",
+        "Is ASB good?",
+        "ASB investing"
+      ],
+      "responses": [
+        "ASB is a low-risk unit trust fund for Malaysian Bumiputeras. It offers consistent dividends and fixed price units. 📉"
+      ]
     },
     {
       "tag": "DEF_TABUNG_HAJI",
-      "patterns": ["What is Tabung Haji?", "TH savings", "Simpanan Tabung Haji", "TH"],
-      "responses": ["Tabung Haji is an Islamic savings institution in Malaysia to help Muslims save for Hajj. It's Shariah-compliant. 🕋"]
+      "patterns": [
+        "What is Tabung Haji?",
+        "TH savings",
+        "Simpanan Tabung Haji",
+        "TH"
+      ],
+      "responses": [
+        "Tabung Haji is an Islamic savings institution in Malaysia to help Muslims save for Hajj. It's Shariah-compliant. 🕋"
+      ]
     },
     {
       "tag": "DEF_KWSP",
-      "patterns": ["What is KWSP?", "EPF", "Employees Provident Fund", "Retirement fund", "EPF account"],
-      "responses": ["KWSP (EPF) is a mandatory retirement savings scheme for Malaysian employees. Your employer contributes too! 👴👵"]
+      "patterns": [
+        "What is KWSP?",
+        "EPF",
+        "Employees Provident Fund",
+        "Retirement fund",
+        "EPF account"
+      ],
+      "responses": [
+        "KWSP (EPF) is a mandatory retirement savings scheme for Malaysian employees. Your employer contributes too! 👴👵"
+      ]
     },
     {
       "tag": "DEF_PTPTN",
-      "patterns": ["What is PTPTN?", "Student loan", "PTPTN debt", "Education loan"],
-      "responses": ["PTPTN provides study loans for Malaysian students. Remember to pay it back to maintain a good credit score! 🎓"]
+      "patterns": [
+        "What is PTPTN?",
+        "Student loan",
+        "PTPTN debt",
+        "Education loan"
+      ],
+      "responses": [
+        "PTPTN provides study loans for Malaysian students. Remember to pay it back to maintain a good credit score! 🎓"
+      ]
     },
     {
       "tag": "DEF_CREDIT_SCORE",
-      "patterns": ["What is credit score?", "CTOS", "CCRIS", "Why credit score matters", "Credit rating"],
-      "responses": ["Your credit score (CTOS/CCRIS) shows banks how trustworthy you are. Pay loans on time to keep it high! 💯"]
+      "patterns": [
+        "What is credit score?",
+        "CTOS",
+        "CCRIS",
+        "Why credit score matters",
+        "Credit rating"
+      ],
+      "responses": [
+        "Your credit score (CTOS/CCRIS) shows banks how trustworthy you are. Pay loans on time to keep it high! 💯"
+      ]
     },
     {
       "tag": "DEF_DEBT_SNOWBALL",
-      "patterns": ["Debt snowball", "Snowball method", "How to pay debt fast", "Snowball vs Avalanche"],
-      "responses": ["**Snowball Method**: Pay off the *smallest* debt first. The quick win motivates you to tackle the next one! ❄️"]
+      "patterns": [
+        "Debt snowball",
+        "Snowball method",
+        "How to pay debt fast",
+        "Snowball vs Avalanche"
+      ],
+      "responses": [
+        "**Snowball Method**: Pay off the *smallest* debt first. The quick win motivates you to tackle the next one! ❄️"
+      ]
     },
     {
       "tag": "DEF_DEBT_AVALANCHE",
-      "patterns": ["Debt avalanche", "Avalanche method", "Best way to pay debt", "Save interest debt"],
-      "responses": ["**Avalanche Method**: Pay off the *highest interest* debt first. Mathematically, this saves you the most money. 🏔️"]
+      "patterns": [
+        "Debt avalanche",
+        "Avalanche method",
+        "Best way to pay debt",
+        "Save interest debt"
+      ],
+      "responses": [
+        "**Avalanche Method**: Pay off the *highest interest* debt first. Mathematically, this saves you the most money. 🏔️"
+      ]
     },
     {
       "tag": "ADVICE_MOTIVATION",
-      "patterns": ["I am broke", "I spent too much", "I feel poor", "Give me motivation", "Money is tight", "I failed my budget", "Help me save", "I have no money"],
-      "responses": ["Don't give up! 🐻 Small steps lead to big results. Try a 'No-Spend Day' tomorrow. Remember: 'Sikit-sikit, lama-lama jadi bukit!'"]
+      "patterns": [
+        "I am broke",
+        "I spent too much",
+        "I feel poor",
+        "Give me motivation",
+        "Money is tight",
+        "I failed my budget",
+        "Help me save",
+        "I have no money"
+      ],
+      "responses": [
+        "Don't give up! 🐻 Small steps lead to big results. Try a 'No-Spend Day' tomorrow. Remember: 'Sikit-sikit, lama-lama jadi bukit!'"
+      ]
     },
     {
       "tag": "ADVICE_GENERAL_TIP",
-      "patterns": ["Give me a tip", "Money hack", "How to save money", "Financial advice", "Frugal tip", "Saving tips"],
-      "responses": ["💡 **Tip:** Try the '24-Hour Rule'. If you want to buy something expensive (>RM50), wait 24 hours. Usually, the urge passes!"]
+      "patterns": [
+        "Give me a tip",
+        "Money hack",
+        "How to save money",
+        "Financial advice",
+        "Frugal tip",
+        "Saving tips"
+      ],
+      "responses": [
+        "💡 **Tip:** Try the '24-Hour Rule'. If you want to buy something expensive (>RM50), wait 24 hours. Usually, the urge passes!"
+      ]
     },
     {
       "tag": "ADVICE_STUDENT_TIPS",
-      "patterns": ["How to save as a student?", "Student budget tips", "No money student", "University finance", "Campus saving"],
-      "responses": ["As a student, take advantage of **student discounts**! Cook with roommates and use second-hand textbooks. 📚🍜"]
+      "patterns": [
+        "How to save as a student?",
+        "Student budget tips",
+        "No money student",
+        "University finance",
+        "Campus saving"
+      ],
+      "responses": [
+        "As a student, take advantage of **student discounts**! Cook with roommates and use second-hand textbooks. 📚🍜"
+      ]
     },
     {
       "tag": "ADVICE_GENERAL_SAVING",
-      "patterns": ["Best way to save", "Where to put savings", "Saving strategies", "High interest savings"],
-      "responses": ["Keep your savings separate from your spending account! Use high-yield accounts like GXBank or Rize to earn daily interest. 💰"]
+      "patterns": [
+        "Best way to save",
+        "Where to put savings",
+        "Saving strategies",
+        "High interest savings"
+      ],
+      "responses": [
+        "Keep your savings separate from your spending account! Use high-yield accounts like GXBank or Rize to earn daily interest. 💰"
+      ]
     },
     {
       "tag": "JOKE",
-      "patterns": ["Tell me a joke", "Funny", "Make me laugh", "Money joke", "Joke", "Say something funny"],
-      "responses": ["Why did the coin roll off the table? Because it wanted to make some cents! 🪙😂", "My bank account is like an onion. Looking at it makes me cry. 🧅"]
+      "patterns": [
+        "Tell me a joke",
+        "Funny",
+        "Make me laugh",
+        "Money joke",
+        "Joke",
+        "Say something funny"
+      ],
+      "responses": [
+        "Why did the coin roll off the table? Because it wanted to make some cents! 🪙😂",
+        "My bank account is like an onion. Looking at it makes me cry. 🧅"
+      ]
     },
     {
       "tag": "COMPLAINT",
-      "patterns": ["You are useless", "Bad bot", "Stupid", "Not helpful", "Wrong answer", "You suck", "Worst app"],
-      "responses": ["I'm sorry! 🐻💧 I'm just a student project. Try asking differently or ask about the app features!"]
+      "patterns": [
+        "You are useless",
+        "Bad bot",
+        "Stupid",
+        "Not helpful",
+        "Wrong answer",
+        "You suck",
+        "Worst app"
+      ],
+      "responses": [
+        "I'm sorry! 🐻💧 I'm just a student project. Try asking differently or ask about the app features!"
+      ]
     },
     {
       "tag": "CONTACT_SUPPORT",
-      "patterns": ["Contact support", "Help desk", "Customer service", "Report bug", "Email developer"],
-      "responses": ["You can contact the developer at **izwan@student.uitm.edu.my** for support or bug reports! 📧"]
+      "patterns": [
+        "Contact support",
+        "Help desk",
+        "Customer service",
+        "Report bug",
+        "Email developer"
+      ],
+      "responses": [
+        "You can contact the developer at **izwan@student.uitm.edu.my** for support or bug reports! 📧"
+      ]
     },
     {
       "tag": "APP_VERSION",
-      "patterns": ["App version", "What version is this?", "Is this updated?", "Build number"],
-      "responses": ["You are using Beruang **v1.0.0 (Thesis Edition)**. 🐻"]
+      "patterns": [
+        "App version",
+        "What version is this?",
+        "Is this updated?",
+        "Build number"
+      ],
+      "responses": [
+        "You are using Beruang **v1.0.0 (Thesis Edition)**. 🐻"
+      ]
     },
     {
       "tag": "GARBAGE",
-      "patterns": ["asdf", "qwerty", "zzzz", "1234", "blah blah", "testing", "idk", "nothing", "not sure", "random text"],
-      "responses": ["I didn't catch that. Try asking about finance or the app! 🤔"]
+      "patterns": [
+        "asdf",
+        "qwerty",
+        "zzzz",
+        "1234",
+        "blah blah",
+        "testing",
+        "idk",
+        "nothing",
+        "not sure",
+        "random text"
+      ],
+      "responses": [
+        "I didn't catch that. Try asking about finance or the app! 🤔"
+      ]
     }
   ]
 }
