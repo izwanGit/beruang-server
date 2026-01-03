@@ -824,7 +824,7 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
@@ -906,7 +906,7 @@ app.post('/import-data', async (req, res) => {
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
