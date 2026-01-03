@@ -805,27 +805,29 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
       Analyze this receipt image and extract details in STRICT JSON format.
       
       Extraction Logic:
-      1. Merchant: Look for the business/shop/stall name at the very TOP of the receipt. 
-      2. Priority Fallback: If the shop name is cut off or missing, look at the first few items listed. Use the most prominent item name as the "Merchant" or "Description" so the user knows what it was for.
-      3. Items like "Retail/Takeaway" are NOT merchant names. Ignore them.
-      
+      1. Merchant: Look for the business/shop/stall name at the very TOP of the receipt (e.g., "Ayam Gepuk Pak Gembus").
+      2. Items: 
+         - If ONE item: Use its exact name.
+         - If MULTIPLE items: List the top 2 most expensive/prominent items, separated by comma. (e.g., "Ayam Bumbu Crispy, Teh O Ais"). 
+         - If MANY items (5+): Use "Item 1, Item 2 & 3 others".
+
       JSON Structure:
       {
         "amount": number,
         "merchant": "string",
-        "description": "string" (A 2-3 word summary of what was bought),
+        "description": "string" (Prioritize EXACT item names. Do NOT summarize into generic terms like "Meal".),
         "date": "YYYY-MM-DD"
       }
       
       Context Rules:
-      - Works for ANY merchant (Fast food, local stalls like Kedai Tomyam, Grocery stores, etc).
+      - Works for ANY merchant.
       - Return ONLY the JSON. No markdown backticks.
     `;
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    // Note: Using Gemini 2.0 Flash-Lite (Stable)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-001:generateContent?key=${googleApiKey}`;
+    // Note: Upgraded to Gemini 2.5 Flash (New Stable 2026)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
@@ -913,8 +915,8 @@ app.post('/import-data', async (req, res) => {
 
     // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
     const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
-    // Note: Using Gemini 2.0 Flash-Lite (Stable)
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite-001:generateContent?key=${googleApiKey}`;
+    // Note: Upgraded to Gemini 2.5 Flash (New Stable 2026)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
 
     const response = await axios.post(url, {
       contents: [{
