@@ -805,22 +805,24 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
       Analyze this receipt image and extract details in STRICT JSON format.
       
       Extraction Logic:
-      1. Merchant: Look for the business/shop/stall name at the very TOP of the receipt (e.g., "Ayam Gepuk Pak Gembus").
-      2. Items: 
-         - If ONE item: Use its exact name.
-         - If MULTIPLE items: List the top 2 most expensive/prominent items, separated by comma. (e.g., "Ayam Bumbu Crispy, Teh O Ais"). 
-         - If MANY items (5+): Use "Item 1, Item 2 & 3 others".
+      1. Merchant: Look for the business/shop/stall name at the very TOP of the receipt.
+      2. Description: Create a SHORT, classifier-friendly summary:
+         - Combine the FOOD TYPE or BRAND with a simple category word.
+         - Examples: "Ayam Gepuk Meal", "McDonalds Burger", "Starbucks Coffee", "7-Eleven Snacks", "Grocery Shopping", "Pharmacy Medicine".
+         - Do NOT list every item (e.g., avoid "Ayam Bumbu Crispy, Sambal Extra Pedas, Teh O Ais").
+         - Do NOT use overly generic terms alone (e.g., avoid just "Meal" or "Food").
+         - The description should be 2-4 words max.
 
       JSON Structure:
       {
         "amount": number,
         "merchant": "string",
-        "description": "string" (Prioritize EXACT item names. Do NOT summarize into generic terms like "Meal".),
+        "description": "string" (2-4 word summary combining type/brand + category),
         "date": "YYYY-MM-DD"
       }
       
       Context Rules:
-      - Works for ANY merchant.
+      - Works for ANY receipt (restaurants, groceries, pharmacies, retail, etc).
       - Return ONLY the JSON. No markdown backticks.
     `;
 
