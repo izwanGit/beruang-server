@@ -8,6 +8,7 @@ const cors = require('cors');
 const axios = require('axios');
 require('dotenv').config();
 const OpenAI = require('openai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 const fs = require('fs-extra');
 const path = require('path');
 const compression = require('compression');
@@ -254,6 +255,9 @@ const openAI = new OpenAI({
     'X-Title': 'Beruang App'
   }
 });
+
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GENAI_API_KEY);
+const geminiModel = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
 const SYSTEM_INSTRUCTION = `
 
@@ -790,7 +794,6 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
 app.post('/scan-receipt', upload.single('image'), async (req, res) => {
   try {
     let base64Image;
-
     if (req.file) {
       base64Image = req.file.buffer.toString('base64');
     } else if (req.body.image) {
@@ -799,14 +802,14 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
       return res.status(400).json({ error: 'No image provided' });
     }
 
-    console.log('🖼️ Scanning receipt with Gemini Vision...');
+    console.log('� Direct Scanning receipt with Google Gemini...');
 
     const prompt = `
       Analyze this receipt image and extract details in STRICT JSON format.
       
       Extraction Logic:
       1. Merchant: Look for the business/shop/stall name at the very TOP of the receipt. 
-      2. Priority Fallback: If the shop name is cut off or missing, look at the first few items listed. Use the most prominent item name as the "Merchant" or "Description" so the user knows what it was for.
+      2. Priority Fallback: If the shop name is cut off or missing, look at the first few items listed. Use the most prominent item name as the "Merchant" or "Description".
       3. Items like "Retail/Takeaway" are NOT merchant names. Ignore them.
       
       JSON Structure:
@@ -817,38 +820,48 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
         "date": "YYYY-MM-DD"
       }
       
-      Context Rules:
-      - Works for ANY merchant (Fast food, local stalls like Kedai Tomyam, Grocery stores, etc).
-      - Return ONLY the JSON. No markdown backticks.
+      Return ONLY the JSON. No backticks.
     `;
 
-    const response = await openAI.chat.completions.create({
-      model: "google/gemini-2.0-flash-exp:free",
-      messages: [
-        {
-          role: "user",
-          content: [
-            { type: "text", text: prompt },
-            {
-              type: "image_url",
-              image_url: {
-                url: `data:image/jpeg;base64,${base64Image}`,
-              },
-            },
-          ],
-        },
-      ],
-      response_format: { type: "json_object" }
-    });
+    // --- RETRY LOGIC (The "Safety Shield") ---
+    let result_ai;
+    let retries = 3;
+    let lastError;
 
-    let result = JSON.parse(response.choices[0].message.content);
+    while (retries > 0) {
+      try {
+        result_ai = await geminiModel.generateContent([
+          prompt,
+          {
+            inlineData: {
+              data: base64Image,
+              mimeType: "image/jpeg"
+            }
+          }
+        ]);
+        break; // Success!
+      } catch (err) {
+        lastError = err;
+        if (err.status === 429 || err.message?.includes('429')) {
+          console.log(`⏳ Rate limit hit. Retrying in 2s... (${retries} left)`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          retries--;
+        } else {
+          throw err; // Not a rate limit, throw it immediately
+        }
+      }
+    }
 
-    // Defensive: If AI returns an array or unexpected structure, extract the first item
+    if (!result_ai) throw lastError;
+
+    const responseText = result_ai.response.text().replace(/```json|```/g, '').trim();
+    let result = JSON.parse(responseText);
+
+    // Defensive: If AI returns an array or unexpected structure
     if (Array.isArray(result)) result = result[0];
     if (result.transactions && Array.isArray(result.transactions)) result = result.transactions[0];
 
     // --- INTEGRATE YOUR OWN AI BRAIN ---
-    // Instead of trusting the Cloud AI, we use your local Beruang TensorFlow categorization!
     const query = result.description || result.merchant || 'Unknown';
     const prediction = await predictTransactionInternal(query);
 
@@ -856,19 +869,17 @@ app.post('/scan-receipt', upload.single('image'), async (req, res) => {
     result.subCategory = prediction.subCategory;
     result.isAi = prediction.isAi;
 
-    console.log(`✅ Scan successful. Local AI categorized "${query}" as ${result.category}`);
+    console.log(`✅ Direct Scan success. Local AI categorized "${query}" as ${result.category}`);
     res.json(result);
 
   } catch (error) {
-    console.error('💥 Scan Error:', error);
-
-    if (error.status === 429) {
+    console.error('💥 Direct Scan Error:', error);
+    if (error.status === 429 || error.message?.includes('429')) {
       return res.status(429).json({
-        error: 'AI is currently busy (Rate Limited). Please try again in 15-30 seconds! ⏳🐻'
+        error: 'Personal rate limit reached. Please wait a moment! ⏳🐻'
       });
     }
-
-    res.status(500).json({ error: 'Failed to process receipt image 🐻💔' });
+    res.status(500).json({ error: 'Failed to process receipt via direct Google AI 🐻💔' });
   }
 });
 
@@ -903,13 +914,9 @@ app.post('/import-data', async (req, res) => {
       "${text}"
     `;
 
-    const response = await openAI.chat.completions.create({
-      model: "google/gemini-2.0-flash-exp:free",
-      messages: [{ role: "user", content: prompt }],
-      response_format: { type: "json_object" }
-    });
-
-    const result = JSON.parse(response.choices[0].message.content);
+    const result_ai = await geminiModel.generateContent(prompt);
+    const responseText = result_ai.response.text().replace(/```json|```/g, '').trim();
+    const result = JSON.parse(responseText);
     console.log(`✅ Bulk Import successful: Found ${result.transactions?.length || 0} items.`);
     res.json(result);
 
