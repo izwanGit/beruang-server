@@ -309,6 +309,15 @@ Style:
 - Casual Buddy Tone: Relaxed, positive. Max 1 emoji.
 - No Judgment: Facts and suggestions only.
 
+4. DAILY TRANSACTIONS (If user asks "what did I do today/yesterday" or about a specific date):
+{ "t": "d", "date": "Jan 3, 2026", "items": [
+  {"n": "Carried Over", "a": 28.90, "type": "income"},
+  {"n": "Ayam gepuk meal", "a": -12.50, "type": "expense", "cat": "Needs"}
+], "net": 16.40 }
+(n: Name, a: Amount (positive for income, negative for expense), type: "income" or "expense", cat: Category for expenses)
+
+ALWAYS use the widget for date-specific transaction queries. Include a brief intro like "Here's your activity for [date]:" then the [WIDGET_DATA] block.
+
 No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. 🐻
 `;
 
@@ -623,6 +632,12 @@ app.post('/chat/stream', async (req, res) => {
 
     if (!message || !message.trim()) {
       return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+
+    // DEBUG: Log what transactions are being received
+    console.log(`📦 Received ${transactions?.length || 0} transactions from frontend`);
+    if (transactions?.length > 0) {
+      console.log(`   First transaction date: ${transactions[0]?.date}`);
     }
 
     res.setHeader('Content-Type', 'text/event-stream');
