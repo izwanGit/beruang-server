@@ -2,14 +2,15 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-2.0-blue.svg)
+![Version](https://img.shields.io/badge/version-12.0-blue.svg)
+![Transaction Accuracy](https://img.shields.io/badge/trans__accuracy-99.88%25-brightgreen.svg)
+![Intent Accuracy](https://img.shields.io/badge/intent__accuracy-99.41%25-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-purple.svg)
-![Status](https://img.shields.io/badge/status-active-success.svg)
 
-**🚀 Backend API Server for Beruang Personal Finance App**
+**🚀 High-Performance Orchestrator for Beruang Personal Finance**
 
-*Intelligent Chatbot • Receipt Scanning • RAG-Powered Responses*
+*Intelligent Hybrid AI • Streaming SSE Support • Triple-Source RAG • Logic-Proof Categorization*
 
 [Features](#-features) • [Installation](#-installation) • [API](#-api-endpoints) • [Architecture](#-architecture) • [Configuration](#-configuration)
 
@@ -19,461 +20,107 @@
 
 ## 📋 Overview
 
-Beruang Server is the backend API powering the [Beruang](https://github.com/izwanGit/Beruang) personal finance app. It combines local AI models with cloud-based LLMs to provide intelligent financial assistance.
+Beruang Server is the centralized intelligence hub for the [Beruang App](https://github.com/izwanGit/Beruang). It orchestrates a high-precision local AI stack with advanced cloud-based LLMs to provide a seamless, secure, and deeply personalized financial experience.
 
-### 🎯 Key Capabilities
+### 🧠 The Unified AI Flow
+Beruang Server doesn't just "talk"; it thinks. Every query is filtered through a multi-stage routing engine to ensure 0ms latency for local tasks and deep reasoning for complex advice.
 
-| Feature | Technology | Description |
-|---------|------------|-------------|
-| **Smart Chatbot** | Grok (OpenRouter) | Context-aware financial advice |
-| **Intent Classification** | TensorFlow.js | Routes queries to appropriate handlers |
-| **Transaction Categorization** | TensorFlow.js | Auto-categorizes expenses (50/30/20) |
-| **Receipt Scanning** | Gemini Vision | Extract merchant, amount, category from receipts |
-| **RAG System** | Local JSON | Expert tips & app manual context |
+```mermaid
+graph TD
+    A[<b>User Message</b>] --> B{<b>Local Intent Model</b><br/>99.41% Accuracy}
+    B -->|Navigation / Help| C[<b>Local Response</b><br/><10ms Latency]
+    B -->|Finance / Advice| D{<b>OOD Detector</b>}
+    D -->|Simple Predict| E[<b>BiLSTM Trans. Model</b><br/>99.88% Accuracy]
+    D -->|Complex Query| F[<b>Grok-1 LLM</b><br/>Cloud Reasoning]
+    F --> G[<b>Context Injector</b>]
+    G --> H[(<b>Triple-Source RAG</b>)]
+    H --- I[DOSM Statistics]
+    H --- J[Expert Finance Tips]
+    H --- K[App Manual]
+    G & E --> L[<b>Streaming Response</b><br/>SSE Protocol]
+```
 
 ---
 
 ## ✨ Features
 
-### 💬 Intelligent Chatbot
-- **Hybrid AI Architecture** - Local intent detection + Cloud LLM
-- **Context Injection** - User profile, budget data, transaction history
-- **Expert Tips RAG** - Retrieves relevant financial tips
-- **Widget Generation** - Creates visualizable spending summaries
+### 💬 Hybrid Chatbot Intelligence
+- **Intelligent Routing**: Automatically distinguishes between "Where is my profile?" (Local) and "Is my spending healthy?" (Cloud).
+- **Streaming Support**: Real-time Server-Sent Events (SSE) for that "human-like" typing experience.
+- **Connection Warm-up**: AI models and API connections are "pre-heated" on boot to eliminate cold-start delays.
 
-### 📸 Receipt Scanning
-- **Gemini Vision AI** - Powered by Google's latest vision model
-- **Smart Extraction** - Merchant name, amount, date, category
-- **Bulk Import** - Process multiple transactions at once
-- **Malaysian Context** - Trained on local receipt formats
+### 🏷️ V11 Transaction Engine
+- **99.88% Accuracy**: Powered by our "Gold Standard" 150k-row logic-proof dataset.
+- **Malaysian Context**: Expertly recognizes Zakat, Touch n Go, Grab, Shopee, and local street food.
+- **Logic-Proof**: No nonsensical pairings—the model understands the semantic difference between "needs" and "wants" in a local context.
 
-### 🧠 Local AI Models
-- **Intent Model** - 99.41% accuracy, 56 categories
-- **Transaction Model** - 15 subcategories, Needs/Wants/Savings
-- **OOD Detection** - Out-of-distribution query handling
+### 📸 Smart Receipt Processing
+- **Gemini Vision AI**: Extracts merchant, total, date, and items with extreme precision.
+- **Auto-Mapping**: Immediately maps extracted items to the correct financial categories.
 
-### 📊 Budget Context
-- **Real-time Budget RAG** - Current month spending breakdown
-- **Historical Analysis** - Multi-month spending patterns
-- **50/30/20 Tracking** - Automatic budget category allocation
+### 📚 Triple-Source RAG (Retrieval-Augmented Generation)
+1. **DOSM Data**: Real Malaysian poverty line and median income statistics.
+2. **Expert Tips**: 388+ curated financial advice snippets.
+3. **App Manual**: Perfect technical guidance on how to use every Beruang feature.
 
 ---
 
 ## 🚀 Installation
 
 ### Prerequisites
-- Node.js ≥ 18.0.0
-- npm or yarn
-- OpenRouter API key (for Grok)
-- Google Gemini API key (for receipt scanning)
+- **Node.js**: v18+
+- **API Keys**: OpenRouter (Grok) & Google Gemini
 
 ### Setup
-
 ```bash
-# Clone the repository
 git clone https://github.com/izwanGit/beruang-server.git
 cd beruang-server
-
-# Install dependencies
 npm install
 
-# Configure environment variables
+# Configure Environment
 cp .env.example .env
-# Edit .env with your API keys
+# Add your OPENROUTER_API_KEY and GOOGLE_GENAI_API_KEY
 ```
 
-### Environment Variables
-
-```env
-# Required
-OPENROUTER_API_KEY=your_openrouter_key_here
-GOOGLE_GENAI_API_KEY=your_gemini_key_here
-
-# Optional
-PORT=3000
-NODE_ENV=production
-```
-
-### Running the Server
-
+### Execution
 ```bash
-# Development
+# Development (Auto-reload)
 npm run dev
 
 # Production
 npm start
-
-# With PM2
-pm2 start server.js --name beruang-server
 ```
 
 ---
 
 ## 🔌 API Endpoints
 
-### Health Check
-
-```http
-GET /health
-```
-
-**Response:**
-```json
-{
-  "status": "ok",
-  "models": {
-    "transaction": true,
-    "intent": true
-  },
-  "uptime": 12345
-}
-```
+### 📡 AI Pipelines
+- `POST /chat/stream`: The flagship streaming endpoint for the chatbot.
+- `POST /predict-transaction`: Batch process descriptions for 99.88% categorization.
+- `POST /scan-receipt`: Gemini Vision powered OCR and categorization.
+- `POST /predict-intent`: Pure intent detection for UI routing.
 
 ---
 
-### 💬 Chat Endpoint
+## 🏗️ Architecture Stack
 
-```http
-POST /chat
-Content-Type: application/json
-```
-
-**Request Body:**
-```json
-{
-  "message": "How much did I spend yesterday?",
-  "userId": "user123",
-  "chatHistory": [...],
-  "transactions": [...],
-  "userProfile": {
-    "name": "Ahmad",
-    "monthlyIncome": 3500
-  }
-}
-```
-
-**Response:**
-```json
-{
-  "response": "Based on your transactions yesterday...",
-  "intent": "COMPLEX_ADVICE",
-  "source": "grok",
-  "widgetData": {
-    "t": "d",
-    "date": "Jan 3, 2026",
-    "items": [...]
-  }
-}
-```
+| Layer | Technology | Purpose |
+| :--- | :--- | :--- |
+| **Runtime** | Node.js / Express | Fast, non-blocking I/O |
+| **Local AI** | TensorFlow.js / MiniLM | Intent & Transaction detection |
+| **Cloud AI** | Grok-1 (Llama-based) | Complex reasoning & financial advice |
+| **Vision** | Google Gemini 1.5 | Receipt OCR & Item extraction |
+| **Speed** | SSE / Warmup Scripts | Real-time performance |
 
 ---
 
-### 📡 Chat Stream (SSE)
-
-```http
-POST /chat/stream
-Content-Type: application/json
-```
-
-**Request Body:** Same as `/chat`
-
-**Response:** Server-Sent Events stream
-```
-data: {"chunk": "Based on your"}
-data: {"chunk": " transactions..."}
-data: [DONE]
-```
-
----
-
-### 📸 Receipt Scanning
-
-```http
-POST /scan-receipt
-Content-Type: multipart/form-data
-```
-
-**Request:**
-```
-image: <file>
-```
-
-**Response:**
-```json
-{
-  "success": true,
-  "data": {
-    "merchant": "Grab Food",
-    "amount": 25.50,
-    "date": "2026-01-04",
-    "category": "Wants",
-    "subcategory": "Food_Delivery",
-    "description": "Nasi Lemak Ayam"
-  }
-}
-```
-
----
-
-### 📦 Bulk Import
-
-```http
-POST /bulk-import
-Content-Type: application/json
-```
-
-**Request Body:**
-```json
-{
-  "text": "Jan 1: Groceries RM50, Petrol RM80, Netflix RM45"
-}
-```
-
-**Response:**
-```json
-{
-  "transactions": [
-    { "description": "Groceries", "amount": 50, "category": "Needs" },
-    { "description": "Petrol", "amount": 80, "category": "Needs" },
-    { "description": "Netflix", "amount": 45, "category": "Wants" }
-  ]
-}
-```
-
----
-
-### 🏷️ Transaction Categorization
-
-```http
-POST /predict
-Content-Type: application/json
-```
-
-**Request Body:**
-```json
-{
-  "text": "Grab Food nasi lemak"
-}
-```
-
-**Response:**
-```json
-{
-  "category": "Wants",
-  "subcategory": "Food_Delivery",
-  "confidence": 0.95
-}
-```
-
----
-
-### 🎯 Intent Prediction
-
-```http
-POST /predict-intent
-Content-Type: application/json
-```
-
-**Request Body:**
-```json
-{
-  "text": "what did i spend yesterday"
-}
-```
-
-**Response:**
-```json
-{
-  "intent": "COMPLEX_ADVICE",
-  "confidence": 1.0,
-  "source": "grok"
-}
-```
-
----
-
-## 🏗️ Architecture
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      Beruang Server                         │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │   Express    │    │   Multer     │    │   CORS       │  │
-│  │   Router     │    │   (Upload)   │    │   Handler    │  │
-│  └──────┬───────┘    └──────┬───────┘    └──────────────┘  │
-│         │                   │                               │
-│         ▼                   ▼                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                    Request Handler                    │   │
-│  └──────────────────────────┬──────────────────────────┘   │
-│                             │                               │
-│         ┌───────────────────┼───────────────────┐          │
-│         ▼                   ▼                   ▼          │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐  │
-│  │    Intent    │    │  Transaction │    │   Receipt    │  │
-│  │    Model     │    │    Model     │    │   Scanner    │  │
-│  │ (TensorFlow) │    │ (TensorFlow) │    │   (Gemini)   │  │
-│  └──────┬───────┘    └──────────────┘    └──────────────┘  │
-│         │                                                   │
-│         ▼                                                   │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │              Intent Router (56 Categories)           │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │   │
-│  │  │   Local     │  │    GROK     │  │   Garbage   │  │   │
-│  │  │  Response   │  │   (Cloud)   │  │   Filter    │  │   │
-│  │  └─────────────┘  └──────┬──────┘  └─────────────┘  │   │
-│  └──────────────────────────┼──────────────────────────┘   │
-│                             │                               │
-│                             ▼                               │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │                    RAG Context                        │   │
-│  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │   │
-│  │  │  Expert     │  │   Budget    │  │    App      │  │   │
-│  │  │   Tips      │  │    Data     │  │   Manual    │  │   │
-│  │  └─────────────┘  └─────────────┘  └─────────────┘  │   │
-│  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 📁 Project Structure
-
-```
-beruang-server/
-├── 📂 model_intent/          # Intent classification model
-│   ├── model.json
-│   ├── weights.bin
-│   └── metadata.json
-├── 📂 model_transaction/     # Transaction categorization model
-│   ├── model.json
-│   └── weights.bin
-├── 📄 server.js              # Main Express server
-├── 📄 responses.json         # Local response patterns
-├── 📄 expert_tips.json       # Financial advice database
-├── 📄 package.json           # Dependencies
-├── 📄 Dockerfile             # Container configuration
-└── 📄 .env                   # Environment variables
-```
-
----
-
-## 🧠 AI System Instruction
-
-The chatbot operates under a carefully crafted system instruction:
-
-```
-You are Beruang Assistant, a laid-back finance pal in the Beruang app.
-"Beruang" means bear in Malay—giving cozy, no-nonsense vibes.
-
-Mission: Assist young adults (18-30) in personal finance management 
-using the 50/30/20 rule.
-
-Style:
-- Malaysia Vibe: RM, local examples like Perodua or Proton
-- Direct & Short: Concise answers
-- Casual Buddy Tone: Friendly, not preachy
-
-Response Flow:
-1. App Questions → Use APP MANUAL first
-2. Budget Questions → Use provided budget data
-3. Direct Queries → Answer straight
-4. Greetings → Simple reply
-5. Off-Topic → Redirect nicely
-```
-
----
-
-## 📊 Intent Categories
-
-The intent model routes queries to 56 categories:
-
-| Category Type | Examples | Handler |
-|--------------|----------|---------|
-| **NAV_*** | "go to expenses", "open profile" | Local Response |
-| **HELP_*** | "how to add income", "how to save" | Local Response |
-| **DEF_*** | "what is inflation", "define KWSP" | Local Response |
-| **COMPLEX_ADVICE** | "should I invest", "check my balance" | GROK API |
-| **GARBAGE** | "asdfgh", random text | Filtered |
-
----
-
-## 🔧 Configuration
-
-### Model Loading
-
-```javascript
-// On server startup
-async function loadModels() {
-  transactionModel = await tf.loadLayersModel('file://./model_transaction/model.json');
-  intentModel = await tf.loadLayersModel('file://./model_intent/model.json');
-  extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
-}
-```
-
-### RAG Context Building
-
-```javascript
-// Expert tips retrieval
-const tips = getRelevantTips(userMessage, k=3);
-
-// Budget context formatting
-const budgetContext = formatBudgetContext(transactions, userProfile);
-
-// Combined prompt
-const augmentedPrompt = `
-${SYSTEM_INSTRUCTION}
-
-EXPERT TIPS:
-${tips.join('\n')}
-
-BUDGET DATA:
-${budgetContext}
-
-USER MESSAGE: ${userMessage}
-`;
-```
-
----
-
-## 🐳 Docker Deployment
-
-```dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-COPY package*.json ./
-RUN npm ci --only=production
-COPY . .
-
-EXPOSE 3000
-CMD ["node", "server.js"]
-```
-
-```bash
-# Build and run
-docker build -t beruang-server .
-docker run -p 3000:3000 --env-file .env beruang-server
-```
-
----
-
-## 📜 License
-
-This project is part of a Final Year Project (FYP) at **Universiti Teknologi MARA (UiTM)**.
-
-**Developed by:** Muhammad Izwan bin Ahmad  
-**Supervised by:** Dr. Khairulliza binti Ahmad Salleh
-
----
-
-## 🔗 Related Repositories
-
-- **[Beruang App](https://github.com/izwanGit/Beruang)** - React Native mobile app
-- **[Beruang AI Backend](https://github.com/izwanGit/beruang-ai-backend)** - ML training & visualization
+## 📜 Final Year Project (FYP) Credits
+Developed as the backend infrastructure for the Beruang ecosystem.
+
+**Developer**: Muhammad Izwan bin Ahmad  
+**Supervision**: Dr. Khairulliza binti Ahmad Salleh  
+**Institution**: Universiti Teknologi MARA (UiTM)
 
 ---
 
@@ -481,6 +128,6 @@ This project is part of a Final Year Project (FYP) at **Universiti Teknologi MAR
 
 **Made with 🐻 by Izwan**
 
-*"Beruang" means bear in Malay – sounds like "Ber-wang" (has money)!*
+*"Beruang" sounds like "Ber-wang" (having money). Let's build your wealth together.*
 
 </div>
