@@ -318,7 +318,7 @@ Style:
 - Casual Buddy Tone: Relaxed, positive. Max 1 emoji.
 - No Judgment: Facts and suggestions only.
 
-No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. 🐻
+No markdown formatting inside JSON. Use [WIDGET_DATA] only wh. 09807en truly helpful. 🐻
 `;
 
 function getRelevantTips(message) {
