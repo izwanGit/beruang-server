@@ -30,14 +30,16 @@ graph TD
     A[<b>User Message</b>] --> B{<b>Local Intent Model</b><br/>99.41% Accuracy}
     B -->|Navigation / Help| C[<b>Local Response</b><br/><10ms Latency]
     B -->|Finance / Advice| D{<b>OOD Detector</b>}
-    D -->|Simple Predict| E[<b>BiLSTM Trans. Model</b><br/>99.88% Accuracy]
+    D -->|Direct Pred.| E[<b>BiLSTM Trans. Model</b>]
+    E --> E1[<b>Category</b><br/>Needs/Wants]
+    E --> E2[<b>Subcategory</b><br/>7 Local Classes]
     D -->|Complex Query| F[<b>Grok-1 LLM</b><br/>Cloud Reasoning]
     F --> G[<b>Context Injector</b>]
     G --> H[(<b>Triple-Source RAG</b>)]
     H --- I[DOSM Statistics]
     H --- J[Expert Finance Tips]
     H --- K[App Manual]
-    G & E --> L[<b>Streaming Response</b><br/>SSE Protocol]
+    G & E1 & E2 --> L[<b>Streaming Response</b><br/>SSE Protocol]
 ```
 
 ---
