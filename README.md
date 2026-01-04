@@ -27,19 +27,29 @@ Beruang Server doesn't just "talk"; it thinks. Every query is filtered through a
 
 ```mermaid
 graph TD
-    A[<b>User Message</b>] --> B{<b>Local Intent Model</b><br/>99.41% Accuracy}
-    B -->|Navigation / Help| C[<b>Local Response</b><br/><10ms Latency]
-    B -->|Finance / Advice| D{<b>OOD Detector</b>}
-    D -->|Direct Pred.| E[<b>BiLSTM Trans. Model</b>]
-    E --> E1[<b>Category</b><br/>Needs/Wants]
-    E --> E2[<b>Subcategory</b><br/>7 Local Classes]
-    D -->|Complex Query| F[<b>Grok-1 LLM</b><br/>Cloud Reasoning]
-    F --> G[<b>Context Injector</b>]
-    G --> H[(<b>Triple-Source RAG</b>)]
-    H --- I[DOSM Statistics]
-    H --- J[Expert Finance Tips]
-    H --- K[App Manual]
-    G & E1 & E2 --> L[<b>Streaming Response</b><br/>SSE Protocol]
+    subgraph "Chat Pipeline"
+    M1[User Message] --> I1{Intent Model}
+    I1 -->|Local| R1[Static Response]
+    I1 -->|Complex| G1[Grok-1 LLM]
+    G1 --> C1[Context Injector]
+    C1 --> RAG[(<b>Triple-Source RAG</b>)]
+    RAG --- R2[Expert Tips]
+    RAG --- R3[Budget Status]
+    RAG --- R4[App Manual]
+    end
+
+    subgraph "Transaction Pipeline"
+    T1[Expense Text] --> B1{BiLSTM Model}
+    B1 --> C2[Category]
+    B1 --> S1[Subcategory]
+    end
+
+    subgraph "Vision Pipeline"
+    V1[Receipt Image] --> GV[Gemini Vision]
+    GV --> T1
+    end
+
+    C1 & R1 & C2 & S1 --> STREAM[<b>Streaming Response</b><br/>SSE Protocol]
 ```
 
 ---
