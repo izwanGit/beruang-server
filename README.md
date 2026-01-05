@@ -4,7 +4,7 @@
 
 ![Version](https://img.shields.io/badge/version-12.0-blue.svg)
 ![Transaction Accuracy](https://img.shields.io/badge/trans__accuracy-99.88%25-brightgreen.svg)
-![Intent Accuracy](https://img.shields.io/badge/intent__accuracy-99.41%25-brightgreen.svg)
+![Intent Accuracy](https://img.shields.io/badge/intent__accuracy-99.57%25-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-purple.svg)
 
@@ -58,6 +58,7 @@ graph TD
 
 ### 💬 Hybrid Chatbot Intelligence
 - **Intelligent Routing**: Automatically distinguishes between "Where is my profile?" (Local) and "Is my spending healthy?" (Cloud).
+- **App-Help Whitelist**: Specialized pre-filter regex patterns ensure that queries like "how to save in this app" bypass aggressive red-flag filters and reach local help intents.
 - **Streaming Support**: Real-time Server-Sent Events (SSE) for that "human-like" typing experience.
 - **Connection Warm-up**: AI models and API connections are "pre-heated" on boot to eliminate cold-start delays.
 
