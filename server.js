@@ -392,26 +392,44 @@ async function predictIntentInternal(message) {
   if (!intentModel || !intentMetadata || !intentExtractor) return null;
   if (!message || !message.trim()) return null;
 
-  const RED_FLAGS = [
-    'invest', 'crypto', 'stock', 'debt', 'loan', 'buy', 'sell',
-    'salary', 'finance', 'money', 'budget', 'save for', 'afford',
-    'survive', 'bank', 'insurance', 'tax', 'profit', 'loss', 'worth',
-    'bitcoin', 'gold', 'property', 'car', 'house', 'wedding',
-    'unrealistic', 'opinion', 'thoughts', 'compare', 'pros and cons'
+  // WHITELIST: App-help patterns that should bypass red flag check
+  const APP_HELP_PATTERNS = [
+    /^how (to|do i|can i) (add|save|use|check|see|view|delete|edit|remove|track|log|record)/i,
+    /^where (is|can i|do i|to) (add|find|see|view|check)/i,
+    /^what (is|does) (this|the) (app|feature|screen|button|page)/i,
+    /in this app/i,
+    /in beruang/i,
+    /this app/i,
+    /the app/i,
   ];
 
-  const COMPLEX_STARTERS = ['why', 'how', 'what if', 'should i', 'can i', 'explain', 'tell me about'];
   const lowerMsg = message.toLowerCase();
-  const hasComplexStarter = COMPLEX_STARTERS.some(s => lowerMsg.startsWith(s));
-  const hasRedFlag = RED_FLAGS.some(flag => lowerMsg.includes(flag));
+  const isAppHelpQuery = APP_HELP_PATTERNS.some(p => p.test(lowerMsg));
 
-  if ((hasComplexStarter && hasRedFlag) || (hasRedFlag && lowerMsg.split(' ').length > 5)) {
-    console.log(`[Intent] ⚠️ PRE-FILTER: Red flag combo detected in "${message}". → GROK`);
-    return {
-      intent: 'COMPLEX_ADVICE',
-      confidence: '100.00%',
-      reason: 'Pre-filter: Complex query detected'
-    };
+  // Skip pre-filter for app-help queries - let model classify them
+  if (!isAppHelpQuery) {
+    const RED_FLAGS = [
+      'invest', 'crypto', 'stock', 'debt', 'loan', 'buy', 'sell',
+      'salary', 'finance', 'money', 'budget', 'save for', 'afford',
+      'survive', 'bank', 'insurance', 'tax', 'profit', 'loss', 'worth',
+      'bitcoin', 'gold', 'property', 'car', 'house', 'wedding',
+      'unrealistic', 'opinion', 'thoughts', 'compare', 'pros and cons'
+    ];
+
+    const COMPLEX_STARTERS = ['why', 'how', 'what if', 'should i', 'can i', 'explain', 'tell me about'];
+    const hasComplexStarter = COMPLEX_STARTERS.some(s => lowerMsg.startsWith(s));
+    const hasRedFlag = RED_FLAGS.some(flag => lowerMsg.includes(flag));
+
+    if ((hasComplexStarter && hasRedFlag) || (hasRedFlag && lowerMsg.split(' ').length > 5)) {
+      console.log(`[Intent] ⚠️ PRE-FILTER: Red flag combo detected in "${message}". → GROK`);
+      return {
+        intent: 'COMPLEX_ADVICE',
+        confidence: '100.00%',
+        reason: 'Pre-filter: Complex query detected'
+      };
+    }
+  } else {
+    console.log(`[Intent] ✅ APP-HELP: Bypassing pre-filter for "${message}"`);
   }
 
   const output = await intentExtractor(message, { pooling: 'mean', normalize: true });
