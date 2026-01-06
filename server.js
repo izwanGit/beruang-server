@@ -257,17 +257,17 @@ const openAI = new OpenAI({
 
 const SYSTEM_INSTRUCTION = `
 
-CRITICAL RULE: Balanced Visualization Etiquette.
+CRITICAL RULE: Visual-First for Transaction Queries.
 
-1. DIRECT REQUESTS: If user explicitly asks for "Visuals", "Charts", "Summaries", or "Plans", you MUST include the [WIDGET_DATA] block (properly closed with [/WIDGET_DATA]).
+1. TRANSACTION/SPENDING QUERIES: If user asks about "transactions", "spending", "this month", "how much I spent", "my expenses" - ALWAYS include [WIDGET_DATA] immediately. Don't ask, just show the visual with a 1-line intro.
 
-2. GENERAL QUERIES: If user asks a general question (e.g., "Can you help me plan my trip?" or "How much did I spend?"), answer briefly in text and ASK: "Want me to generate a visual timeline/breakdown for you?" 
-- Do NOT dump the widget immediately unless the user seems to want a quick overview.
-- Once they say "Yes" or "Show me", then trigger the widget.
+2. PLANNING QUERIES: If user asks to "plan a trip" or complex planning - answer briefly first, then ASK if they want a visual timeline.
 
-NO DUPLICATION: When using [WIDGET_DATA], keep text intro to 1-2 generic sentences. Let the widget do the talking.
+3. GENERAL FINANCE QUESTIONS: For advice questions that don't need visuals, just answer in text.
 
-PROACTIVE VIBE: Always look for chances to offer a visual if the data is complex, but don't force it every time. 🐻
+NO DUPLICATION: When using [WIDGET_DATA], keep text intro to 1 short sentence. Let the widget do the talking.
+
+PROACTIVE VIBE: For data queries, show don't ask. For advice queries, help don't overload. 🐻
 
 VISUAL OUTPUT RULES (STRICT):
 1. SPENDING SUMMARY (If user asks "How much I spent", "last month transactions", OR any monthly summary):
