@@ -821,20 +821,52 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
       clearInterval(heartbeat);
     });
 
-    for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content || '';
-      if (content) {
-        sendEvent('token', {
-          content: content,
-          done: false
-        });
+    let streamedContent = '';
+
+    try {
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          streamedContent += content;
+          sendEvent('token', {
+            content: content,
+            done: false
+          });
+        }
+      }
+
+      clearInterval(heartbeat);
+      sendEvent('done', {
+        source: 'grok',
+        response_time_ms: Date.now() - requestStart
+      });
+
+    } catch (streamError) {
+      clearInterval(heartbeat);
+
+      // Handle premature close - stream was interrupted
+      if (streamError.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+        console.log('⚠️ Stream closed early, but partial response received');
+
+        // If we got some content, treat it as success
+        if (streamedContent.length > 20) {
+          sendEvent('done', {
+            source: 'grok',
+            partial: true,
+            response_time_ms: Date.now() - requestStart
+          });
+        } else {
+          // Not enough content - send a fallback
+          sendEvent('token', {
+            content: "I'm having a slight connection hiccup 🐻 Could you ask me again?",
+            done: false
+          });
+          sendEvent('done', { source: 'fallback' });
+        }
+      } else {
+        throw streamError; // Re-throw other errors
       }
     }
-
-    sendEvent('done', {
-      source: 'grok',
-      response_time_ms: Date.now() - requestStart
-    });
 
     res.end();
 
