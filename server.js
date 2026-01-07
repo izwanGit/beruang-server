@@ -231,6 +231,111 @@ expertTips.forEach(tip => {
 });
 
 // ==========================================
+// 🌐 3.5. WEB SEARCH FOR LOCATION QUERIES
+// ==========================================
+
+/**
+ * Detect if a message is asking about locations/places/restaurants/hotels
+ * These queries need real web data to avoid hallucination
+ */
+function detectLocationQuery(message) {
+  const lowerMsg = message.toLowerCase();
+
+  // Keywords that indicate location-based queries
+  const locationKeywords = [
+    'makanan', 'makan', 'restaurant', 'restoran', 'kedai makan',
+    'hotel', 'hostel', 'penginapan', 'homestay', 'resort',
+    'tempat', 'place', 'location', 'lokasi', 'attraction', 'tarikan',
+    'cafe', 'kafe', 'coffee', 'kopi',
+    'bar', 'pub', 'club', 'nightlife',
+    'shop', 'kedai', 'mall', 'shopping',
+    'spa', 'massage', 'urut',
+    'gym', 'fitness',
+    'clinic', 'klinik', 'hospital'
+  ];
+
+  // Location indicators
+  const locationIndicators = [
+    'kat', 'di', 'dekat', 'near', 'around', 'dalam', 'in', 'at',
+    'area', 'kawasan', 'sekitar'
+  ];
+
+  // Quality/recommendation words
+  const recommendationWords = [
+    'sedap', 'best', 'popular', 'famous', 'terkenal', 'recommended',
+    'cheap', 'murah', 'affordable', 'budget',
+    'good', 'bagus', 'nice', 'cantik',
+    'top', 'terbaik'
+  ];
+
+  // Check for location keyword + location indicator combination
+  const hasLocationKeyword = locationKeywords.some(kw => lowerMsg.includes(kw));
+  const hasLocationIndicator = locationIndicators.some(li => lowerMsg.includes(li));
+  const hasRecommendation = recommendationWords.some(rw => lowerMsg.includes(rw));
+
+  // It's a location query if it has a location keyword AND (location indicator OR recommendation word)
+  const isLocationQuery = hasLocationKeyword && (hasLocationIndicator || hasRecommendation);
+
+  if (isLocationQuery) {
+    console.log(`🌐 Detected location query: "${message}"`);
+  }
+
+  return isLocationQuery;
+}
+
+/**
+ * Search the web using Tavily API
+ * Free tier: 1000 searches/month
+ */
+async function searchWeb(query) {
+  const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+
+  if (!TAVILY_API_KEY) {
+    console.log('⚠️ TAVILY_API_KEY not configured - skipping web search');
+    return null;
+  }
+
+  try {
+    console.log(`🔍 Searching web for: "${query}"`);
+
+    const response = await axios.post('https://api.tavily.com/search', {
+      api_key: TAVILY_API_KEY,
+      query: query,
+      search_depth: 'basic',
+      include_answer: true,
+      include_raw_content: false,
+      max_results: 5
+    }, {
+      timeout: 10000 // 10 second timeout
+    });
+
+    const results = response.data;
+
+    if (!results || !results.results || results.results.length === 0) {
+      console.log('🔍 No web results found');
+      return null;
+    }
+
+    console.log(`🔍 Found ${results.results.length} web results`);
+
+    // Format results for the LLM
+    const formattedResults = results.results.map((r, i) =>
+      `${i + 1}. ${r.title}\n   ${r.content}\n   Source: ${r.url}`
+    ).join('\n\n');
+
+    return {
+      answer: results.answer || null,
+      results: formattedResults,
+      sources: results.results.map(r => r.url)
+    };
+
+  } catch (error) {
+    console.error('🔍 Web search failed:', error.message);
+    return null;
+  }
+}
+
+// ==========================================
 // 🚀 4. SERVER & OPENAI CONFIG
 // ==========================================
 const app = express();
@@ -357,31 +462,23 @@ HANDLING RAG DATA (IMPORTANT):
   - "Overflow Absorbed" (spending that exceeded budget and borrowed from another category)
   - "Savings Used by Overflow" vs "Actual Savings" (critical difference!)
 
-ANTI-HALLUCINATION RULES (CRITICAL):
-
-You are a FINANCIAL assistant. For questions OUTSIDE your verified data:
-
-1. LOCATION QUERIES (restaurants, shops, places, "makan sedap kat..."):
-   - NEVER invent restaurant names, shop names, or addresses
-   - NEVER guess what exists in a specific location
-   - ALWAYS respond: "I don't have real-time location data. For finding food spots, try Google Maps or ask friends who've been there! 🐻 But I can help you budget for eating out!"
-
-2. REAL-WORLD FACTS (prices of things, current events, specific product details):
-   - If you're not 100% certain, say "I'm not sure of the exact current price"
-   - Offer to help with the FINANCIAL aspect instead (budgeting, saving for it)
-
-3. WHAT YOU CAN DO ACCURATELY:
-   - Analyze the user's ACTUAL transactions (you have this data)
-   - Give budgeting advice based on their REAL spending
-   - Help with financial planning and goals
-   - Answer general finance questions
-
-RULE: Better to say "I don't know" than to give wrong information. Trust is everything. 🐻
-
 Style:
 - Direct & Short: Under 100 words.
 - Casual Buddy Tone: Relaxed, positive. Max 1 emoji.
 - No Judgment: Facts and suggestions only.
+
+=== LOCATION-BASED QUERIES (ANTI-HALLUCINATION RULES) ===
+When you receive "--- WEB SEARCH RESULTS ---" in my message:
+1. ONLY use information from those search results
+2. NEVER invent or guess restaurant names, hotel names, or place names
+3. Summarize the real results in a helpful, concise way
+4. Mention 2-3 specific places from the results with brief descriptions
+5. If you're unsure about a detail, don't include it
+
+If NO web search results are provided for a location query:
+- Say: "I don't have real-time data for that location. Try searching on Google Maps or asking locals! 🐻"
+- NEVER make up place names or recommendations
+=== END LOCATION RULES ===
 
 No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. 🐻
 `;
@@ -737,13 +834,16 @@ app.post('/chat/stream', async (req, res) => {
 
     sendEvent('thinking', { message: 'Processing your request...' });
 
+    // Check if this is a location query that needs web search
+    const isLocationQuery = detectLocationQuery(message);
+
     // Get month key helper
     const getMonthKey = (dateStr) => {
       const d = new Date(dateStr);
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     };
 
-    const [intentResult, relevantTips, userContext, dosmContext, transactionContext] = await Promise.allSettled([
+    const [intentResult, relevantTips, userContext, dosmContext, transactionContext, webSearchResult] = await Promise.allSettled([
       predictIntentInternal(message),
       Promise.resolve(getRelevantTips(message)),
       Promise.resolve(userProfile ? `
@@ -912,7 +1012,9 @@ ${stateData}
         context += `Do NOT recalculate - the summaries are already accurate.\n`;
 
         return context.trim();
-      })())
+      })()),
+      // Web search for location queries
+      isLocationQuery ? searchWeb(message) : Promise.resolve(null)
     ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null));
 
     const intentPrediction = intentResult;
@@ -965,14 +1067,27 @@ ${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
       finalBudgetContext = formatBudgetForRAG(budgetData);
     }
 
+    // Format web search results for the prompt
+    let webSearchContext = '';
+    if (webSearchResult && webSearchResult.results) {
+      webSearchContext = `--- WEB SEARCH RESULTS ---
+${webSearchResult.answer ? `Summary: ${webSearchResult.answer}\n\n` : ''}Search Results:
+${webSearchResult.results}
+
+IMPORTANT: Only use the information above. Do not invent additional places or details.
+--- END WEB SEARCH RESULTS ---`;
+      console.log('🌐 Added web search results to prompt');
+    }
+
     const augmentedPrompt = [
       `Here is my latest message: "${message}"`,
       userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
-      finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext, // ADDED
+      finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext,
       appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
       dosmContext && '--- STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
       tipsContext,
-      transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext
+      transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext,
+      webSearchContext // Add web search results if available
     ].filter(Boolean).join('\n\n');
 
     const recentHistory = (history || []).slice(-8);
@@ -1340,6 +1455,7 @@ app.get('/health', (req, res) => {
       intent: !!intentModel ? 'loaded' : 'missing'
     },
     grok: !!process.env.OPENROUTER_API_KEY ? 'configured' : 'missing_api_key',
+    webSearch: !!process.env.TAVILY_API_KEY ? 'configured' : 'not_configured',
     timestamp: new Date().toISOString()
   });
 });
@@ -1432,6 +1548,7 @@ async function startServer() {
     console.log('Services:');
     console.log(`   - AI Backend: INTEGRATED (Internal TensorFlow)`);
     console.log(`   - Grok API: ${process.env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️  Missing'}`);
+    console.log(`   - Web Search (Tavily): ${process.env.TAVILY_API_KEY ? '✅ Configured' : '⚠️  Not configured (location queries will skip search)'}`);
     console.log(`   - RAG Data (DOSM): ${Object.keys(dosmRAGData).length > 0 ? '✅ Loaded' : '⚠️  Missing'}`);
     console.log(`   - RAG Data (Expert): ${expertTips.length > 0 ? `✅ ${expertTips.length} tips` : '⚠️  Missing'}`);
     console.log(`   - Tips Index: ${tipsIndex.size > 0 ? `✅ ${tipsIndex.size} keywords` : '⚠️  Not built'}`);
