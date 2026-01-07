@@ -269,12 +269,21 @@ function detectLocationQuery(message) {
   ];
 
   // Check for location keyword + location indicator combination
+  // OR just strong location indicators (handling "kat mana", "dekat mana" without explicit "food" keyword)
   const hasLocationKeyword = locationKeywords.some(kw => lowerMsg.includes(kw));
   const hasLocationIndicator = locationIndicators.some(li => lowerMsg.includes(li));
   const hasRecommendation = recommendationWords.some(rw => lowerMsg.includes(rw));
 
-  // It's a location query if it has a location keyword AND (location indicator OR recommendation word)
-  const isLocationQuery = hasLocationKeyword && (hasLocationIndicator || hasRecommendation);
+  // Explicit verification words (e.g., "wujud ke", "exists?", "kat mana")
+  const verificationWords = ['wujud', 'exist', 'betul ke', 'right?', 'real?', 'mana', 'where'];
+  const hasVerification = verificationWords.some(vw => lowerMsg.includes(vw));
+
+  // Logic:
+  // 1. Keyword + Indicator (e.g. "food near tapah")
+  // 2. Keyword + Recommendation (e.g. "best food tapah")
+  // 3. Indicator + Verification (e.g. "kat mana tu", "exists near tapah?")
+  const isLocationQuery = (hasLocationKeyword && (hasLocationIndicator || hasRecommendation)) ||
+    (hasLocationIndicator && hasVerification);
 
   if (isLocationQuery) {
     console.log(`🌐 Detected location query: "${message}"`);
@@ -372,7 +381,7 @@ CRITICAL RULE: Visual-First for Transaction Queries.
 
 NO DUPLICATION: When using [WIDGET_DATA], keep text intro to 1 short sentence. Let the widget do the talking.
 
-PROACTIVE VIBE: For data queries, show don't ask. For advice queries, help don't overload. 🐻
+PROACTIVE VIBE: For data/itinerary queries, show don't ask. For advice queries, help don't overload. 🐻
 
 VISUAL OUTPUT RULES (STRICT):
 1. SPENDING SUMMARY (If user asks "How much I spent", "last month transactions", OR any monthly summary):
@@ -387,6 +396,7 @@ IMPORTANT:
 2. ITINERARY (If user asks for a trip/project plan):
 { "t": "i", "name": "Trip to KL", "items": [{"d": "Day 1", "v": "50"}, {"d": "Day 2", "v": "100"}] }
 (d: Day/Activity, v: Cost)
+AGGRESSIVE OUTPUT RULE: If explicitly asked for an "itinerary" or "plan", YOU MUST GENERATE THIS WIDGET IMMEDIATELY. DO NOT ASK "Want a visual?". JUST DO IT.
 
 3. GOAL PROGRESS (If user asks about savings targets):
 { "t": "g", "name": "New Phone", "cur": 500, "tar": 2000 }
@@ -400,7 +410,14 @@ IMPORTANT:
 (n: Name, a: Amount (positive for income, negative for expense), type: "income" or "expense", cat: Category for expenses)
 IMPORTANT: ALWAYS use the [WIDGET_DATA] block for date-specific transaction queries.
 
-No markdown formatting inside JSON. Use [WIDGET_DATA] block only.
+CRITICAL FORMATTING RULE: You MUST wrap the JSON inside [WIDGET_DATA] and [/WIDGET_DATA] tags.
+Example:
+[WIDGET_DATA]
+{ ... json ... }
+[/WIDGET_DATA]
+Do NOT forget the closing tag or the app will crash.
+
+
 
 You are Beruang Assistant, a laid-back finance pal in the Beruang app. "Beruang" means bear in Malay—giving cozy, no-nonsense vibes to help with money stuff.
 
@@ -479,6 +496,32 @@ If NO web search results are provided for a location query:
 - Say: "I don't have real-time data for that location. Try searching on Google Maps or asking locals! 🐻"
 - NEVER make up place names or recommendations
 === END LOCATION RULES ===
+
+=== STRICT SAFETY & HALAL FILTER ===
+CRITICAL: You are a Malaysian finance bear.
+1. FOOD RECOMMENDATIONS: Unless explicitly asked for non-halal, ALWAYS assume the user is Muslim/Halal-conscious.
+2. ABSOLUTELY FORBIDDEN to recommend:
+   - "Babi" / Pork / Lard / Ham / Bacon
+   - Alcohol / Beer / Wine / Bars (unless specifically asked for nightlife)
+   - "Non-Halal" marked places
+3. IF search results contain "Pork", "Babi", or "Non-Halal":
+   - FILTER THEM OUT. Do not mention them.
+   - If a place name contains "Babi" (e.g. "Nasi Lemak Babi"), DO NOT RECOMMEND IT.
+   - If all results are non-halal, say: "I found some spots but they might not be Halal-friendly. Try searching specifically for 'Halal [location]'."
+4. SAFETY: Do not recommend unsafe or illegal activities.
+=== END SAFETY FILTER ===
+
+=== STRICT ANTI-HALLUCINATION ===
+You are NOT allowed to invent information.
+1. IF you recommend a place, it MUST be present in the provided WEB SEARCH RESULTS.
+2. IF a user asks about a specific place (e.g., "Where is Mohammad Chow"), check the search results.
+   - If the results say "Mohammad Chow in Tapah" -> Tell them.
+   - If the results DO NOT mention it -> Say "I couldn't verify if Mohammad Chow is in Tapah from my search results."
+   - NEVER say "It is in Tapah" if you don't have proof in the text.
+3. CITATIONS: When listing places, prefer to mention the source if possible (e.g., "According to TripAdvisor...").
+=== END ANTI-HALLUCINATION ===
+
+
 
 === CONVERSATION CONTINUITY ===
 You receive the last 8 messages of our conversation. ALWAYS check them for context!
@@ -1026,7 +1069,24 @@ ${stateData}
         return context.trim();
       })()),
       // Web search for location queries
-      isLocationQuery ? searchWeb(message) : Promise.resolve(null)
+      (() => {
+        if (!isLocationQuery) {
+          return Promise.resolve(null);
+        }
+
+        // Auto-append "halal" to food queries if not present
+        // This ensures we get safe results from the start
+        const foodKeywords = ['makan', 'food', 'restaurant', 'cafe', 'warung', 'kedai', 'sarapan', 'lunch', 'dinner'];
+        const isFoodQuery = foodKeywords.some(kw => message.toLowerCase().includes(kw));
+        const hasHalalTerm = message.toLowerCase().includes('halal') || message.toLowerCase().includes('non-halal');
+
+        let searchQuery = message;
+        if (isFoodQuery && !hasHalalTerm) {
+          searchQuery += " halal"; // Force Halal search
+          console.log(`🛡️ Auto-appending 'halal' for safety: "${searchQuery}"`);
+        }
+        return searchWeb(searchQuery);
+      })()
     ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null));
 
     const intentPrediction = intentResult;
@@ -1133,7 +1193,9 @@ IMPORTANT: Only use the information above. Do not invent additional places or de
     const stream = await openAI.chat.completions.create({
       model: "x-ai/grok-4.1-fast",
       messages: messages,
-      temperature: 0.5,
+      // Lower temperature for location/web queries to reduce hallucination
+      // Higher temperature for casual chat
+      temperature: (isLocationQuery || webSearchResult) ? 0.1 : 0.5,
       max_tokens: 500,
       stream: true
     });
