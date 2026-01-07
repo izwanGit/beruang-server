@@ -13,7 +13,19 @@
         "Hola",
         "Greetings",
         "Hey bear",
-        "Are you there?"
+        "Are you there?",
+        "Helo",
+        "Helli",
+        "Helllo",
+        "Heloo",
+        "Hii",
+        "Hai",
+        "Hiii",
+        "Hellooo",
+        "Heyy",
+        "Heey",
+        "Heyyo",
+        "Heya"
       ],
       "responses": [
         "Hello! I'm Beruang 🐻. How can I help you manage your money today?",
@@ -45,7 +57,12 @@
         "Signing off",
         "Good night",
         "Exit",
-        "End chat"
+        "End chat",
+        "Byee",
+        "Bey",
+        "Goodby",
+        "Gudbye",
+        "Laterr"
       ],
       "responses": [
         "Goodbye! Don't forget to track your expenses! 👋",
@@ -739,11 +756,9 @@
         "zzzz",
         "1234",
         "blah blah",
-        "testing",
-        "idk",
-        "nothing",
-        "not sure",
-        "random text"
+        "aaaa",
+        "xxxx",
+        "jkjkjk"
       ],
       "responses": [
         "I didn't catch that. Try asking about finance or the app! 🤔"

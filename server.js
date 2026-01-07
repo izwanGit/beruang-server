@@ -151,7 +151,8 @@ function detectOOD(message, sequence, predictions, metadata) {
     reasons.push(`Low confidence gap (${(gap * 100).toFixed(1)}%)`);
   }
 
-  const isOOD = reasons.length >= 1 || maxConf < classThreshold;
+  // Decision: Is it OOD? Require at least 2 reasons OR confidence below threshold
+  const isOOD = reasons.length >= 2 || maxConf < classThreshold;
 
   return {
     isOOD,
@@ -243,7 +244,8 @@ function detectLocationQuery(message) {
 
   // Keywords that indicate location-based queries
   const locationKeywords = [
-    'makanan', 'makan', 'restaurant', 'restoran', 'kedai makan',
+    'makanan', 'makan', 'food', 'eat', 'dining', 'lunch', 'dinner', 'breakfast', 'brunch',
+    'restaurant', 'restoran', 'kedai makan',
     'hotel', 'hostel', 'penginapan', 'homestay', 'resort',
     'tempat', 'place', 'location', 'lokasi', 'attraction', 'tarikan',
     'cafe', 'kafe', 'coffee', 'kopi',
@@ -262,10 +264,10 @@ function detectLocationQuery(message) {
 
   // Quality/recommendation words
   const recommendationWords = [
-    'sedap', 'best', 'popular', 'famous', 'terkenal', 'recommended',
+    'sedap', 'best', 'popular', 'famous', 'terkenal', 'recommended', 'recommend',
     'cheap', 'murah', 'affordable', 'budget',
     'good', 'bagus', 'nice', 'cantik',
-    'top', 'terbaik'
+    'top', 'terbaik', 'suggest', 'suggestion'
   ];
 
   // Check for location keyword + location indicator combination
@@ -1092,13 +1094,20 @@ ${stateData}
     const intentPrediction = intentResult;
 
     // Detect short follow-up queries that need conversation context
+    // BUT: If model is highly confident (≥80%) AND intent has local response, don't bypass!
     const isShortFollowUp = message.trim().length < 20 && (history || []).length > 0;
     const hasWebResults = webSearchResult && webSearchResult.results;
 
+    // Extract confidence as number for comparison
+    const confidenceNum = intentPrediction ? parseFloat(intentPrediction.confidence) : 0;
+    const isHighConfidenceLocal = confidenceNum >= 80 &&
+      intentPrediction?.intent !== 'COMPLEX_ADVICE' &&
+      localResponses[intentPrediction?.intent];
+
     // Check for local response - BUT bypass if:
     // 1. It's a location query with web results (we should use web data!)
-    // 2. It's a short follow-up query (needs conversation history)
-    const shouldBypassLocal = (isLocationQuery && hasWebResults) || isShortFollowUp;
+    // 2. It's a short follow-up query (needs conversation history) AND NOT high confidence local
+    const shouldBypassLocal = (isLocationQuery && hasWebResults) || (isShortFollowUp && !isHighConfidenceLocal);
 
     if (!shouldBypassLocal &&
       intentPrediction &&
