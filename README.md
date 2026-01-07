@@ -2,9 +2,9 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-12.0-blue.svg)
-![Transaction Accuracy](https://img.shields.io/badge/trans__accuracy-99.6%25-brightgreen.svg)
-![Intent Accuracy](https://img.shields.io/badge/intent__accuracy-99.57%25-brightgreen.svg)
+![Version](https://img.shields.io/badge/version-1.0-blue.svg)
+![Transaction Accuracy](https://img.shields.io/badge/trans__accuracy-99.61%25-brightgreen.svg)
+![Intent Accuracy](https://img.shields.io/badge/intent__accuracy-99.62%25-brightgreen.svg)
 ![Node](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)
 ![License](https://img.shields.io/badge/license-MIT-purple.svg)
 
@@ -62,8 +62,8 @@ graph TD
 - **Streaming Support**: Real-time Server-Sent Events (SSE) for that "human-like" typing experience.
 - **Connection Warm-up**: AI models and API connections are "pre-heated" on boot to eliminate cold-start delays.
 
-### 🏷️ V12 Transaction Engine
-- **99.6% Accuracy**: Powered by our "Gold Standard" 220k-row logic-proof dataset.
+### 🏷️ V1.0 Transaction Engine
+- **99.61% Accuracy**: Powered by our "Gold Standard" 334k-row logic-proof dataset.
 - **Malaysian Context**: Expertly recognizes Zakat, Touch n Go, Grab, Shopee, and local street food.
 - **Logic-Proof**: No nonsensical pairings—the model understands the semantic difference between "needs" and "wants" in a local context.
 
@@ -110,7 +110,7 @@ npm start
 
 ### 📡 AI Pipelines
 - `POST /chat/stream`: The flagship streaming endpoint for the chatbot.
-- `POST /predict-transaction`: Batch process descriptions for 99.6% categorization.
+- `POST /predict-transaction`: Batch process descriptions for 99.61% categorization.
 - `POST /scan-receipt`: Gemini Vision powered OCR and categorization.
 - `POST /predict-intent`: Pure intent detection for UI routing.
 
