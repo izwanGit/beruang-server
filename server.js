@@ -480,6 +480,18 @@ If NO web search results are provided for a location query:
 - NEVER make up place names or recommendations
 === END LOCATION RULES ===
 
+=== CONVERSATION CONTINUITY ===
+You receive the last 8 messages of our conversation. ALWAYS check them for context!
+Short follow-up messages like:
+- "if hotel?" → User is continuing previous topic (check what they asked before)
+- "nak yang halal" → Filter/requirement for previous question
+- "kalau dekat situ?" → Location follow-up
+- "yang murah?" → Price filter for previous question
+
+For follow-ups: ALWAYS reference the previous context and answer accordingly.
+Don't treat short messages as new standalone questions.
+=== END CONVERSATION RULES ===
+
 No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. 🐻
 `;
 
@@ -1019,8 +1031,17 @@ ${stateData}
 
     const intentPrediction = intentResult;
 
-    // Check for local response
-    if (intentPrediction &&
+    // Detect short follow-up queries that need conversation context
+    const isShortFollowUp = message.trim().length < 20 && (history || []).length > 0;
+    const hasWebResults = webSearchResult && webSearchResult.results;
+
+    // Check for local response - BUT bypass if:
+    // 1. It's a location query with web results (we should use web data!)
+    // 2. It's a short follow-up query (needs conversation history)
+    const shouldBypassLocal = (isLocationQuery && hasWebResults) || isShortFollowUp;
+
+    if (!shouldBypassLocal &&
+      intentPrediction &&
       intentPrediction.intent !== 'COMPLEX_ADVICE' &&
       intentPrediction.intent !== 'GARBAGE' &&
       localResponses[intentPrediction.intent]) {
@@ -1049,6 +1070,15 @@ ${stateData}
       });
 
       return res.end();
+    }
+
+    // Log why we're going to Grok
+    if (shouldBypassLocal) {
+      if (isLocationQuery && hasWebResults) {
+        console.log(`🌐 Bypassing local response - location query with web results`);
+      } else if (isShortFollowUp) {
+        console.log(`💬 Bypassing local response - short follow-up query needs context`);
+      }
     }
 
     // Stream from Grok
