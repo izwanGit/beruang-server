@@ -264,12 +264,16 @@ Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
             webSearchContext = `--- WEB SEARCH RESULTS ---\n${webSearchResult.results}\n--- END ---`;
         }
 
+        const appManualContext = knowledgeBase.getAppManualContext();
+
         const augmentedPrompt = [
-            `Message: "${message}"`,
-            userContext,
-            finalBudgetContext,
-            transactionContext,
+            `Here is my latest message: "${message}"`,
+            userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
+            finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext,
+            appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
+            dosmContext && '--- STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
             tipsContext,
+            transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext,
             webSearchContext
         ].filter(Boolean).join('\n\n');
 
@@ -337,8 +341,26 @@ async function chat(req, res) {
             return res.status(400).json({ error: 'Message cannot be empty' });
         }
 
+        // Build context - COMPLETE VERSION FROM ORIGINAL
+        const userContext = userProfile ? `
+Here is my complete user profile for context:
+- Name: ${userProfile.name}
+- Age: ${userProfile.age}
+- State: ${userProfile.state}
+- Occupation: ${userProfile.occupation}
+- Monthly Income: RM ${userProfile.monthlyIncome}
+- Main Financial Goal: ${userProfile.financialGoals}
+- Biggest Money Challenge: ${userProfile.financialSituation}
+- My Spending Style: ${userProfile.riskTolerance}
+- My Tracking Method (Before this app): ${userProfile.cashFlow}
+- Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
+`.trim() : '';
+
         const relevantTips = knowledgeBase.getRelevantTips(message);
-        const userContext = userProfile ? `User: ${userProfile.name}, Income: RM ${userProfile.monthlyIncome}` : '';
+        const tipsContext = relevantTips.length > 0 ? `
+Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
+` : '';
+        const appManualContext = knowledgeBase.getAppManualContext();
 
         let finalBudgetContext = budgetContext;
         if (!finalBudgetContext && transactions && userProfile) {
@@ -347,9 +369,11 @@ async function chat(req, res) {
         }
 
         const augmentedPrompt = [
-            `Message: "${message}"`,
-            userContext,
-            finalBudgetContext
+            `Here is my latest message: "${message}"`,
+            userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
+            finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext,
+            appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
+            tipsContext
         ].filter(Boolean).join('\n\n');
 
         const recentHistory = (history || []).slice(-8);
