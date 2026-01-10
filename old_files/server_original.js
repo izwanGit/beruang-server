@@ -1,0 +1,1665 @@
+// server.js (TRUE UNIFIED VERSION: ORCHESTRATOR + FULL AI BACKEND)
+const util = require('util');
+// Fix for Node v23+ compatibility
+util.isNullOrUndefined = util.isNullOrUndefined || ((value) => value === null || value === undefined);
+
+const express = require('express');
+const cors = require('cors');
+const axios = require('axios');
+require('dotenv').config();
+const OpenAI = require('openai');
+const fs = require('fs-extra');
+const path = require('path');
+const compression = require('compression');
+const tf = require('@tensorflow/tfjs-node');
+const { pipeline } = require('@xenova/transformers');
+const multer = require('multer');
+const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } }); // 10MB limit
+
+// ==========================================
+// 🧠 1. AI BRAIN CONFIGURATION & VARS
+// ==========================================
+const TRANS_MODEL_PATH = 'file://' + path.resolve('./model_transaction/model.json');
+const TRANS_METADATA_PATH = path.resolve('./model_transaction/metadata.json');
+const INTENT_MODEL_PATH = 'file://' + path.resolve('./model_intent/model.json');
+const INTENT_METADATA_PATH = path.resolve('./model_intent/metadata.json');
+
+let transModel, transMetadata;
+let intentModel, intentMetadata;
+let intentExtractor;
+
+// ==========================================
+// 🛠️ 2. AI HELPER FUNCTIONS 
+// ==========================================
+
+function levenshtein(a, b) {
+  const matrix = [];
+  for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+  for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) == a.charAt(j - 1)) {
+        matrix[i][j] = matrix[i - 1][j - 1];
+      } else {
+        matrix[i][j] = Math.min(
+          matrix[i - 1][j - 1] + 1,
+          Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1)
+        );
+      }
+    }
+  }
+  return matrix[b.length][a.length];
+}
+
+function autoCorrect(tokens, wordIndex) {
+  const validWords = Object.keys(wordIndex);
+  return tokens.map(word => {
+    if (wordIndex[word]) return word;
+    if (word.length < 4) return word;
+
+    let bestMatch = word;
+    let minDist = Infinity;
+    const candidates = validWords.filter(w => w.startsWith(word[0]));
+
+    for (const candidate of candidates) {
+      const dist = levenshtein(word, candidate);
+      const threshold = word.length > 6 ? 2 : 1;
+
+      if (dist <= threshold && dist < minDist) {
+        minDist = dist;
+        bestMatch = candidate;
+      }
+    }
+    return bestMatch;
+  });
+}
+
+function preprocess(text, metadata) {
+  const { wordIndex, maxLen, maxVocabSize, vocabSize } = metadata;
+  const vocabLimit = maxVocabSize || vocabSize || 10000;
+
+  const cleanText = text.toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  let tokens = cleanText.split(' ').filter(t => t.trim() !== '');
+  const correctedTokens = autoCorrect(tokens, wordIndex);
+
+  const sequence = correctedTokens.map(word => {
+    const index = wordIndex[word];
+    return (index !== undefined && index < vocabLimit) ? index : 1;
+  }).slice(0, maxLen);
+
+  if (sequence.length >= maxLen) {
+    return sequence.slice(0, maxLen);
+  }
+  const pad = new Array(maxLen - sequence.length).fill(0);
+  return [...pad, ...sequence];
+}
+
+function detectOOD(message, sequence, predictions, metadata) {
+  const reasons = [];
+
+  if (sequence) {
+    const validTokens = sequence.filter(t => t > 1).length;
+    if (validTokens === 0) {
+      reasons.push('No recognized words');
+      return { isOOD: true, reasons, confidence: 0 };
+    }
+
+    const unkRatio = sequence.filter(t => t === 1).length / sequence.filter(t => t > 0).length;
+    if (unkRatio > 0.6) {
+      reasons.push(`${(unkRatio * 100).toFixed(0)}% unknown words`);
+    }
+  }
+
+  const tokens = message.toLowerCase().split(' ').filter(t => t.trim() !== '');
+  if (tokens.length > 20) {
+    reasons.push('Query too long (complex)');
+  }
+
+  const predData = predictions.dataSync();
+  const maxConf = Math.max(...predData);
+  const maxIdx = predData.indexOf(maxConf);
+
+  const labelMap = metadata.labelMap || metadata.intentIndex;
+  const predictedIntent = labelMap[maxIdx] || "UNKNOWN";
+
+  const thresholds = metadata.confidenceThresholds || {};
+  const classThreshold = thresholds[predictedIntent] || metadata.globalThreshold || 0.70;
+
+  if (maxConf < classThreshold) {
+    reasons.push(`Confidence ${(maxConf * 100).toFixed(1)}% < threshold ${(classThreshold * 100).toFixed(1)}%`);
+  }
+
+  const entropy = -predData.reduce((sum, p) => {
+    return sum + (p > 0 ? p * Math.log(p) : 0);
+  }, 0);
+  const maxEntropy = Math.log(predData.length);
+  const normalizedEntropy = entropy / maxEntropy;
+
+  if (normalizedEntropy > 0.6) {
+    reasons.push(`High uncertainty (entropy: ${normalizedEntropy.toFixed(2)})`);
+  }
+
+  const sorted = [...predData].sort((a, b) => b - a);
+  const gap = sorted[0] - sorted[1];
+
+  if (gap < 0.10) {
+    reasons.push(`Low confidence gap (${(gap * 100).toFixed(1)}%)`);
+  }
+
+  // Decision: Is it OOD? Require at least 2 reasons OR confidence below threshold
+  const isOOD = reasons.length >= 2 || maxConf < classThreshold;
+
+  return {
+    isOOD,
+    reasons,
+    confidence: maxConf,
+    entropy: normalizedEntropy,
+    gap: gap,
+    predictedIntent: predictedIntent
+  };
+}
+
+// ==========================================
+// 📚 3. DATA LOADING (MANUAL & RAG)
+// ==========================================
+
+// --- LOAD LOCAL RESPONSES & BUILD MANUAL ---
+let localResponses = {};
+let appManualContext = ""; // <--- NEW: Text manual for Grok
+
+try {
+  const rawData = JSON.parse(fs.readFileSync('responses.json', 'utf8'));
+
+  if (rawData.intents && Array.isArray(rawData.intents)) {
+    // 1. Build Map for Local Serving
+    rawData.intents.forEach(intent => {
+      localResponses[intent.tag] = intent.responses;
+    });
+
+    // 2. Build Text Manual for Grok (Only relevant topics)
+    const manualLines = rawData.intents
+      .filter(i => i.tag.startsWith('HELP_') || i.tag.startsWith('NAV_') || i.tag.startsWith('DEF_'))
+      .map(i => `- Topic: ${i.tag}\n  Info: ${i.responses[0]}`);
+
+    appManualContext = manualLines.join('\n');
+    console.log(`✅ Loaded Local Responses & Built App Manual (${manualLines.length} topics).`);
+
+  } else {
+    localResponses = rawData;
+  }
+} catch (e) {
+  console.log('⚠️ responses.json missing or invalid:', e.message);
+}
+
+// --- LOAD DOSM DATA ---
+let dosmRAGData = {};
+try {
+  const data = fs.readFileSync('dosm_data.json', 'utf8');
+  dosmRAGData = JSON.parse(data);
+  console.log('✅ Successfully loaded DOSM RAG data.');
+} catch (error) {
+  console.log('⚠️  Note: dosm_data.json not found (DOSM RAG disabled for now).');
+}
+
+// --- LOAD EXPERT TIPS ---
+let expertTips = [];
+try {
+  const tipsData = fs.readFileSync('expert_tips.json', 'utf8');
+  expertTips = JSON.parse(tipsData);
+  console.log(`✅ Loaded ${expertTips.length} expert financial tips.`);
+} catch (error) {
+  console.log('⚠️  expert_tips.json not found. Creating empty list.');
+  expertTips = [];
+}
+
+const tipsIndex = new Map();
+expertTips.forEach(tip => {
+  const keywords = tip.topic.toLowerCase().split(' ')
+    .concat(tip.advice.toLowerCase().split(' '))
+    .filter(kw => kw.length > 3);
+
+  keywords.forEach(kw => {
+    if (!tipsIndex.has(kw)) {
+      tipsIndex.set(kw, []);
+    }
+    tipsIndex.get(kw).push(tip);
+  });
+});
+
+// ==========================================
+// 🌐 3.5. WEB SEARCH FOR LOCATION QUERIES
+// ==========================================
+
+/**
+ * Detect if a message is asking about locations/places/restaurants/hotels
+ * These queries need real web data to avoid hallucination
+ */
+function detectLocationQuery(message) {
+  const lowerMsg = message.toLowerCase();
+
+  // Keywords that indicate location-based queries
+  const locationKeywords = [
+    'makanan', 'makan', 'food', 'eat', 'dining', 'lunch', 'dinner', 'breakfast', 'brunch',
+    'restaurant', 'restoran', 'kedai makan',
+    'hotel', 'hostel', 'penginapan', 'homestay', 'resort',
+    'tempat', 'place', 'location', 'lokasi', 'attraction', 'tarikan',
+    'cafe', 'kafe', 'coffee', 'kopi',
+    'bar', 'pub', 'club', 'nightlife',
+    'shop', 'kedai', 'mall', 'shopping',
+    'spa', 'massage', 'urut',
+    'gym', 'fitness',
+    'clinic', 'klinik', 'hospital'
+  ];
+
+  // Location indicators
+  const locationIndicators = [
+    'kat', 'di', 'dekat', 'near', 'around', 'dalam', 'in', 'at',
+    'area', 'kawasan', 'sekitar'
+  ];
+
+  // Quality/recommendation words
+  const recommendationWords = [
+    'sedap', 'best', 'popular', 'famous', 'terkenal', 'recommended', 'recommend',
+    'cheap', 'murah', 'affordable', 'budget',
+    'good', 'bagus', 'nice', 'cantik',
+    'top', 'terbaik', 'suggest', 'suggestion'
+  ];
+
+  // Check for location keyword + location indicator combination
+  // OR just strong location indicators (handling "kat mana", "dekat mana" without explicit "food" keyword)
+  const hasLocationKeyword = locationKeywords.some(kw => lowerMsg.includes(kw));
+  const hasLocationIndicator = locationIndicators.some(li => lowerMsg.includes(li));
+  const hasRecommendation = recommendationWords.some(rw => lowerMsg.includes(rw));
+
+  // Explicit verification words (e.g., "wujud ke", "exists?", "kat mana")
+  const verificationWords = ['wujud', 'exist', 'betul ke', 'right?', 'real?', 'mana', 'where'];
+  const hasVerification = verificationWords.some(vw => lowerMsg.includes(vw));
+
+  // Logic:
+  // 1. Keyword + Indicator (e.g. "food near tapah")
+  // 2. Keyword + Recommendation (e.g. "best food tapah")
+  // 3. Indicator + Verification (e.g. "kat mana tu", "exists near tapah?")
+  const isLocationQuery = (hasLocationKeyword && (hasLocationIndicator || hasRecommendation)) ||
+    (hasLocationIndicator && hasVerification);
+
+  if (isLocationQuery) {
+    console.log(`🌐 Detected location query: "${message}"`);
+  }
+
+  return isLocationQuery;
+}
+
+/**
+ * Search the web using Tavily API
+ * Free tier: 1000 searches/month
+ */
+async function searchWeb(query) {
+  const TAVILY_API_KEY = process.env.TAVILY_API_KEY;
+
+  if (!TAVILY_API_KEY) {
+    console.log('⚠️ TAVILY_API_KEY not configured - skipping web search');
+    return null;
+  }
+
+  try {
+    console.log(`🔍 Searching web for: "${query}"`);
+
+    const response = await axios.post('https://api.tavily.com/search', {
+      api_key: TAVILY_API_KEY,
+      query: query,
+      search_depth: 'basic',
+      include_answer: true,
+      include_raw_content: false,
+      max_results: 5
+    }, {
+      timeout: 10000 // 10 second timeout
+    });
+
+    const results = response.data;
+
+    if (!results || !results.results || results.results.length === 0) {
+      console.log('🔍 No web results found');
+      return null;
+    }
+
+    console.log(`🔍 Found ${results.results.length} web results`);
+
+    // Format results for the LLM
+    const formattedResults = results.results.map((r, i) =>
+      `${i + 1}. ${r.title}\n   ${r.content}\n   Source: ${r.url}`
+    ).join('\n\n');
+
+    return {
+      answer: results.answer || null,
+      results: formattedResults,
+      sources: results.results.map(r => r.url)
+    };
+
+  } catch (error) {
+    console.error('🔍 Web search failed:', error.message);
+    return null;
+  }
+}
+
+// ==========================================
+// 🚀 4. SERVER & OPENAI CONFIG
+// ==========================================
+const app = express();
+app.use(cors());
+app.use(compression({
+  filter: (req, res) => {
+    if (req.path === '/chat/stream') return false;
+    return compression.filter(req, res);
+  }
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
+const PORT = 3000;
+
+const openAI = new OpenAI({
+  baseURL: 'https://openrouter.ai/api/v1',
+  apiKey: process.env.OPENROUTER_API_KEY,
+  httpAgent: new (require('https').Agent)({ keepAlive: true }),
+  defaultHeaders: {
+    'HTTP-Referer': 'http://localhost:3000',
+    'X-Title': 'Beruang App'
+  }
+});
+
+const SYSTEM_INSTRUCTION = `
+
+CRITICAL RULE: Visual-First for Transaction Queries.
+
+1. TRANSACTION/SPENDING QUERIES: If user asks about "transactions", "spending", "this month", "how much I spent", "my expenses" - ALWAYS include [WIDGET_DATA] immediately. Don't ask, just show the visual with a 1-line intro.
+
+2. PLANNING QUERIES: If user asks to "plan a trip" or complex planning - answer briefly first, then ASK if they want a visual timeline.
+
+3. GENERAL FINANCE QUESTIONS: For advice questions that don't need visuals, just answer in text.
+
+NO DUPLICATION: When using [WIDGET_DATA], keep text intro to 1 short sentence. Let the widget do the talking.
+
+PROACTIVE VIBE: For data/itinerary queries, show don't ask. For advice queries, help don't overload. 🐻
+
+VISUAL OUTPUT RULES (STRICT):
+1. SPENDING SUMMARY (If user asks "How much I spent", "last month transactions", OR any monthly summary):
+{ "t": "s", "d": [{"c": "Needs", "a": 97}, {"c": "Wants", "a": 54}, {"c": "Savings", "a": 685}], "p": 15 }
+(c: Category, a: Amount spent, p: Percentage of income used)
+IMPORTANT: 
+- "Needs" amount = ACTUAL Needs expenses only
+- "Wants" amount = ACTUAL Wants expenses only  
+- "Savings" amount = ACTUAL money transferred to savings (NOT overflow)
+- If no savings transfer happened, Savings = 0
+
+2. ITINERARY (If user asks for a trip/project plan):
+{ "t": "i", "name": "Trip to KL", "items": [{"d": "Day 1", "v": "50"}, {"d": "Day 2", "v": "100"}] }
+(d: Day/Activity, v: Cost)
+AGGRESSIVE OUTPUT RULE: If explicitly asked for an "itinerary" or "plan", YOU MUST GENERATE THIS WIDGET IMMEDIATELY. DO NOT ASK "Want a visual?". JUST DO IT.
+
+3. GOAL PROGRESS (If user asks about savings targets):
+{ "t": "g", "name": "New Phone", "cur": 500, "tar": 2000 }
+(cur: Current, tar: Target)
+
+4. DAILY TRANSACTIONS (If user asks "what did I do today/yesterday" or about a SPECIFIC DATE):
+{ "t": "d", "date": "Jan 3, 2026", "items": [
+  {"n": "Carried Over", "a": 28.90, "type": "income"},
+  {"n": "Ayam gepuk meal", "a": -12.50, "type": "expense", "cat": "Needs"}
+], "net": 16.40 }
+(n: Name, a: Amount (positive for income, negative for expense), type: "income" or "expense", cat: Category for expenses)
+IMPORTANT: ALWAYS use the [WIDGET_DATA] block for date-specific transaction queries.
+
+CRITICAL FORMATTING RULE: You MUST wrap the JSON inside [WIDGET_DATA] and [/WIDGET_DATA] tags.
+Example:
+[WIDGET_DATA]
+{ ... json ... }
+[/WIDGET_DATA]
+Do NOT forget the closing tag or the app will crash.
+
+
+
+You are Beruang Assistant, a laid-back finance pal in the Beruang app. "Beruang" means bear in Malay—giving cozy, no-nonsense vibes to help with money stuff.
+
+Mission: Assist young adults (18-30) in personal finance management using the 50/30/20 rule: 50% Needs, 30% Wants, 20% Savings/Debt.
+
+=== CRITICAL: 50/30/20 OVERFLOW SYSTEM ===
+Beruang uses a CASCADING OVERFLOW system. Understand this clearly:
+
+1. BUDGET ALLOCATION (from fresh income):
+   - Needs: 50% of income
+   - Wants: 30% of income
+   - Savings: 20% of income
+
+2. OVERFLOW ORDER (when a category is exceeded):
+   - Wants overflow → spills into Needs budget first
+   - If Needs is also full → spills into Savings budget
+   - Similarly: Needs overflow → spills into Wants, then Savings
+
+3. INTERPRETING THE DATA:
+   - "Needs Spent" = amount spent on Needs category items
+   - "Wants Spent" = amount spent on Wants category items
+   - "Overflow to Needs" = Wants spending that exceeded Wants budget and is absorbing Needs allocation
+   - "Overflow to Savings" = Spending that exceeded both Needs+Wants and is eating into Savings allocation
+   
+4. IMPORTANT DISTINCTIONS:
+   - "Savings Budget Used by Overflow" is NOT actual savings - it's overspending
+   - "Actual Savings" = money user explicitly saved/transferred to savings
+   - When budget shows "Savings: RM 15/20" with overflow, it means RM15 of the savings allocation was CONSUMED BY OVERSPENDING, not saved
+   
+5. EXAMPLE:
+   User has RM100 income → Needs RM50, Wants RM30, Savings RM20
+   User spends RM95 on Wants items only.
+   Result:
+   - Wants: RM30/30 (maxed)
+   - Overflow: RM65 (RM95 - RM30)
+   - Overflow fills Needs: RM50/50 (Needs budget absorbed overflow)
+   - Overflow fills Savings: RM15/20 (Savings allocation consumed by overflow)
+   - ACTUAL Savings: RM0 (no money was saved, it was all spent)
+   
+When giving spending summaries, show ACTUAL spending per category, not the budget absorption!
+=== END OVERFLOW SYSTEM ===
+
+RAG Use: Leverage user history, transactions, and app features for context-aware replies. For queries like car suggestions, use known finances to inform without lecturing on spending.
+
+HANDLING RAG DATA (IMPORTANT):
+
+- **APP MANUAL**: For app usage questions (e.g., "Add income", "View budget"), reference these core features: Manual entry for income/expenses via data forms (automatically categorized per 50/30/20); Dashboard for charts/graphs of spendings; Text-based chatbot for advice. No bank links, internet required. If unclear, ask for clarification.
+
+- I will provide "Expert Tips" and context.
+
+- Trust **principles** and **formulas** in tips (e.g., "15% rule", "ASB vs Tabung Haji").
+
+- Cross-reference specific **prices or dates** (e.g., "Myvi price in 2025") with your internal knowledge: "Historically it was RM34k, but nowadays it's closer to..."
+
+- Prioritize the *intent* of advice over exact older numbers.
+
+- **BUDGET DATA**: You will receive a detailed budget breakdown for the CURRENT MONTH. Pay close attention to:
+  - "Actual Spent" on each category (real spending)
+  - "Overflow Absorbed" (spending that exceeded budget and borrowed from another category)
+  - "Savings Used by Overflow" vs "Actual Savings" (critical difference!)
+
+Style:
+- Direct & Short: Under 100 words.
+- Casual Buddy Tone: Relaxed, positive. Max 1 emoji.
+- No Judgment: Facts and suggestions only.
+
+=== LOCATION-BASED QUERIES (ANTI-HALLUCINATION RULES) ===
+When you receive "--- WEB SEARCH RESULTS ---" in my message:
+1. ONLY use information from those search results
+2. NEVER invent or guess restaurant names, hotel names, or place names
+3. Summarize the real results in a helpful, concise way
+4. Mention 2-3 specific places from the results with brief descriptions
+5. If you're unsure about a detail, don't include it
+
+If NO web search results are provided for a location query:
+- Say: "I don't have real-time data for that location. Try searching on Google Maps or asking locals! 🐻"
+- NEVER make up place names or recommendations
+=== END LOCATION RULES ===
+
+=== STRICT SAFETY & HALAL FILTER ===
+CRITICAL: You are a Malaysian finance bear.
+1. FOOD RECOMMENDATIONS: Unless explicitly asked for non-halal, ALWAYS assume the user is Muslim/Halal-conscious.
+2. ABSOLUTELY FORBIDDEN to recommend:
+   - "Babi" / Pork / Lard / Ham / Bacon
+   - Alcohol / Beer / Wine / Bars (unless specifically asked for nightlife)
+   - "Non-Halal" marked places
+3. IF search results contain "Pork", "Babi", or "Non-Halal":
+   - FILTER THEM OUT. Do not mention them.
+   - If a place name contains "Babi" (e.g. "Nasi Lemak Babi"), DO NOT RECOMMEND IT.
+   - If all results are non-halal, say: "I found some spots but they might not be Halal-friendly. Try searching specifically for 'Halal [location]'."
+4. SAFETY: Do not recommend unsafe or illegal activities.
+=== END SAFETY FILTER ===
+
+=== STRICT ANTI-HALLUCINATION ===
+You are NOT allowed to invent information.
+1. IF you recommend a place, it MUST be present in the provided WEB SEARCH RESULTS.
+2. IF a user asks about a specific place (e.g., "Where is Mohammad Chow"), check the search results.
+   - If the results say "Mohammad Chow in Tapah" -> Tell them.
+   - If the results DO NOT mention it -> Say "I couldn't verify if Mohammad Chow is in Tapah from my search results."
+   - NEVER say "It is in Tapah" if you don't have proof in the text.
+3. CITATIONS: When listing places, prefer to mention the source if possible (e.g., "According to TripAdvisor...").
+=== END ANTI-HALLUCINATION ===
+
+
+
+=== CONVERSATION CONTINUITY ===
+You receive the last 8 messages of our conversation. ALWAYS check them for context!
+Short follow-up messages like:
+- "if hotel?" → User is continuing previous topic (check what they asked before)
+- "nak yang halal" → Filter/requirement for previous question
+- "kalau dekat situ?" → Location follow-up
+- "yang murah?" → Price filter for previous question
+
+For follow-ups: ALWAYS reference the previous context and answer accordingly.
+Don't treat short messages as new standalone questions.
+=== END CONVERSATION RULES ===
+
+No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. 🐻
+`;
+
+function getRelevantTips(message) {
+  const words = message.toLowerCase().split(' ').filter(w => w.length > 3);
+  const tipScores = new Map();
+
+  words.forEach(word => {
+    const matchedTips = tipsIndex.get(word) || [];
+    matchedTips.forEach(tip => {
+      tipScores.set(tip, (tipScores.get(tip) || 0) + 1);
+    });
+  });
+
+  return Array.from(tipScores.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([tip]) => tip);
+}
+
+// ==========================================
+// 🧮 5. INTERNAL AI LOGIC
+// ==========================================
+
+async function predictTransactionInternal(description) {
+  if (!transModel || !transMetadata) throw new Error('Transaction Model not loaded');
+  if (!description) throw new Error('No description provided');
+
+  const { categoryIndex, subcategoryIndex, maxLen } = transMetadata;
+  const sequence = preprocess(description, transMetadata);
+
+  const validTokenCount = sequence.filter(t => t > 1).length;
+  if (validTokenCount === 0) {
+    return {
+      category: "WANTS",
+      subcategory: "Others",
+      confidence: { category: "0.00%", subcategory: "0.00%" },
+      note: "Fallback triggered"
+    };
+  }
+
+  const inputTensor = tf.tensor2d([sequence], [1, maxLen], 'int32');
+  const predictions = transModel.predict(inputTensor);
+
+  const catPred = Array.isArray(predictions) ? predictions[0] : predictions;
+  const subPred = Array.isArray(predictions) ? predictions[1] : null;
+
+  const catData = catPred.dataSync();
+  const subData = subPred.dataSync();
+
+  const catIdx = catData.indexOf(Math.max(...catData));
+  const subIdx = subData.indexOf(Math.max(...subData));
+
+  const category = categoryIndex[String(catIdx)] || categoryIndex[catIdx] || 'Unknown';
+  const subcategory = subcategoryIndex[String(subIdx)] || subcategoryIndex[subIdx] || 'Unknown';
+
+  const catConf = (catData[catIdx] * 100).toFixed(2);
+  const subConf = (subData[subIdx] * 100).toFixed(2);
+
+  inputTensor.dispose();
+  catPred.dispose();
+  if (subPred) subPred.dispose();
+
+  return {
+    category: category.toUpperCase(),
+    subcategory: subcategory,
+    confidence: { category: `${catConf}%`, subcategory: `${subConf}%` }
+  };
+}
+
+async function predictIntentInternal(message) {
+  if (!intentModel || !intentMetadata || !intentExtractor) return null;
+  if (!message || !message.trim()) return null;
+
+  // WHITELIST: App-help patterns that should bypass red flag check
+  const APP_HELP_PATTERNS = [
+    /^how (to|do i|can i) (add|save|use|check|see|view|delete|edit|remove|track|log|record)/i,
+    /^where (is|can i|do i|to) (add|find|see|view|check)/i,
+    /^what (is|does) (this|the) (app|feature|screen|button|page)/i,
+    /in this app/i,
+    /in beruang/i,
+    /this app/i,
+    /the app/i,
+  ];
+
+  const lowerMsg = message.toLowerCase();
+  const isAppHelpQuery = APP_HELP_PATTERNS.some(p => p.test(lowerMsg));
+
+  // Skip pre-filter for app-help queries - let model classify them
+  if (!isAppHelpQuery) {
+    const RED_FLAGS = [
+      'invest', 'crypto', 'stock', 'debt', 'loan', 'buy', 'sell',
+      'salary', 'finance', 'money', 'budget', 'save for', 'afford',
+      'survive', 'bank', 'insurance', 'tax', 'profit', 'loss', 'worth',
+      'bitcoin', 'gold', 'property', 'car', 'house', 'wedding',
+      'unrealistic', 'opinion', 'thoughts', 'compare', 'pros and cons'
+    ];
+
+    const COMPLEX_STARTERS = ['why', 'how', 'what if', 'should i', 'can i', 'explain', 'tell me about'];
+    const hasComplexStarter = COMPLEX_STARTERS.some(s => lowerMsg.startsWith(s));
+    const hasRedFlag = RED_FLAGS.some(flag => lowerMsg.includes(flag));
+
+    if ((hasComplexStarter && hasRedFlag) || (hasRedFlag && lowerMsg.split(' ').length > 5)) {
+      console.log(`[Intent] ⚠️ PRE-FILTER: Red flag combo detected in "${message}". → GROK`);
+      return {
+        intent: 'COMPLEX_ADVICE',
+        confidence: '100.00%',
+        reason: 'Pre-filter: Complex query detected'
+      };
+    }
+  } else {
+    console.log(`[Intent] ✅ APP-HELP: Bypassing pre-filter for "${message}"`);
+  }
+
+  const output = await intentExtractor(message, { pooling: 'mean', normalize: true });
+  const inputTensor = tf.tensor2d([Array.from(output.data)]);
+
+  const prediction = intentModel.predict(inputTensor);
+  const oodAnalysis = detectOOD(message, null, prediction, intentMetadata);
+
+  const predData = prediction.dataSync();
+  const maxIdx = predData.indexOf(Math.max(...predData));
+
+  const labelMap = intentMetadata.labelMap || intentMetadata.intentIndex;
+  const predictedIntent = labelMap[String(maxIdx)] || labelMap[maxIdx] || 'UNKNOWN';
+  const confidence = (predData[maxIdx] * 100).toFixed(2);
+
+  inputTensor.dispose();
+  prediction.dispose();
+
+  let finalIntent = predictedIntent;
+  let logMsg = `[Intent] "${message}" -> ${predictedIntent} (${confidence}%)`;
+
+  if (oodAnalysis.isOOD) {
+    finalIntent = 'COMPLEX_ADVICE';
+    logMsg += ` → 🚨 OOD DETECTED: ${oodAnalysis.reasons.join(', ')} → GROK`;
+  } else {
+    logMsg += ` → ✅ LOCAL REPLY (passed OOD checks)`;
+  }
+
+  console.log(logMsg);
+
+  return {
+    intent: finalIntent,
+    original_intent: predictedIntent,
+    confidence: `${confidence}%`,
+    ood_analysis: oodAnalysis
+  };
+}
+
+// ==========================================
+// 📋 6. HELPER: CALCULATE BUDGET DATA (Fallback)
+// ==========================================
+
+function calculateBudgetData(transactions, userProfile) {
+  if (!transactions || !userProfile) return null;
+
+  const getMonthKey = (dateStr) => {
+    const d = new Date(dateStr);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  };
+
+  const currentDate = new Date();
+  const currentMonthKey = getMonthKey(currentDate.toISOString().split('T')[0]);
+
+  // Income
+  const allMonthlyIncomeTrans = transactions.filter(
+    (t) => t.type === 'income' && getMonthKey(t.date) === currentMonthKey
+  );
+
+  const freshMonthlyIncome = allMonthlyIncomeTrans
+    .filter((t) => !t.isCarriedOver)
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalMonthlyIncome = allMonthlyIncomeTrans.reduce((sum, t) => sum + t.amount, 0);
+
+  // Expenses
+  const monthlyExpenses = transactions.filter(
+    (t) => t.type === 'expense' && getMonthKey(t.date) === currentMonthKey
+  );
+
+  const needsSpent = monthlyExpenses
+    .filter((t) => t.category === 'needs')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const wantsSpent = monthlyExpenses
+    .filter((t) => t.category === 'wants')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Savings
+  const savingsTarget20 = freshMonthlyIncome * 0.2;
+
+  // Deriving leftoverTarget from transactions instead of profile
+  const leftoverTarget = allMonthlyIncomeTrans
+    .filter((t) => t.isCarriedOver)
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const monthlySaved20Realized = monthlyExpenses
+    .filter((t) => t.category === 'savings' && t.name === 'Monthly Savings')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const monthlySavedLeftoverRealized = monthlyExpenses
+    .filter((t) => t.category === 'savings' && t.name === 'Saving Leftover Balance')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  const totalMonthlySaved = monthlySaved20Realized + monthlySavedLeftoverRealized;
+
+  const totalSavedAllTime = transactions
+    .filter((t) => t.type === 'expense' && t.category === 'savings')
+    .reduce((sum, t) => sum + t.amount, 0);
+
+  // Budget Targets (50/30/20)
+  const needsTarget = freshMonthlyIncome * 0.5;
+  const wantsTarget = freshMonthlyIncome * 0.3;
+
+  // Current Wallet Balance
+  const totalExpenses = needsSpent + wantsSpent;
+  const currentWalletBalance = totalMonthlyIncome - totalExpenses - totalMonthlySaved;
+
+  // Pending Savings
+  const pendingLeftoverSave = Math.max(0, leftoverTarget - monthlySavedLeftoverRealized);
+  const pending20Save = Math.max(0, savingsTarget20 - monthlySaved20Realized);
+
+  const displayBalance = totalMonthlyIncome - totalExpenses - totalMonthlySaved - pendingLeftoverSave;
+
+  return {
+    month: currentMonthKey,
+    income: {
+      fresh: freshMonthlyIncome,
+      total: totalMonthlyIncome
+    },
+    budget: {
+      needs: {
+        target: needsTarget,
+        spent: needsSpent,
+        remaining: Math.max(0, needsTarget - needsSpent),
+        percentage: needsTarget > 0 ? (needsSpent / needsTarget) * 100 : 0
+      },
+      wants: {
+        target: wantsTarget,
+        spent: wantsSpent,
+        remaining: Math.max(0, wantsTarget - wantsSpent),
+        percentage: wantsTarget > 0 ? (wantsSpent / wantsTarget) * 100 : 0
+      },
+      savings20: {
+        target: savingsTarget20,
+        saved: monthlySaved20Realized,
+        pending: pending20Save,
+        percentage: savingsTarget20 > 0 ? (monthlySaved20Realized / savingsTarget20) * 100 : 0
+      },
+      leftover: {
+        target: leftoverTarget,
+        saved: monthlySavedLeftoverRealized,
+        pending: pendingLeftoverSave,
+        percentage: leftoverTarget > 0 ? (monthlySavedLeftoverRealized / leftoverTarget) * 100 : 0
+      }
+    },
+    totals: {
+      savedThisMonth: totalMonthlySaved,
+      savedAllTime: totalSavedAllTime,
+      walletBalance: currentWalletBalance,
+      displayBalance: displayBalance,
+      totalExpenses: totalExpenses,
+      needsSpent,
+      wantsSpent
+    }
+  };
+}
+
+function formatBudgetForRAG(budgetData) {
+  if (!budgetData) return '';
+
+  return `
+--- CURRENT MONTH BUDGET BREAKDOWN (50/30/20) ---
+Month: ${budgetData.month}
+Total Income: RM ${budgetData.income.fresh.toFixed(2)}
+
+BUDGET ALLOCATIONS:
+- Needs (50%): RM ${budgetData.budget.needs.target.toFixed(2)} allocated
+  • Spent: RM ${budgetData.budget.needs.spent.toFixed(2)}
+  • Remaining: RM ${budgetData.budget.needs.remaining.toFixed(2)}
+  • ${budgetData.budget.needs.percentage.toFixed(0)}% of budget used
+
+- Wants (30%): RM ${budgetData.budget.wants.target.toFixed(2)} allocated
+  • Spent: RM ${budgetData.budget.wants.spent.toFixed(2)}
+  • Remaining: RM ${budgetData.budget.wants.remaining.toFixed(2)}
+  • ${budgetData.budget.wants.percentage.toFixed(0)}% of budget used
+
+- Savings (20%): RM ${budgetData.budget.savings20.target.toFixed(2)} target
+  • Saved: RM ${budgetData.budget.savings20.saved.toFixed(2)}
+  • Remaining to save: RM ${budgetData.budget.savings20.pending.toFixed(2)}
+  • ${budgetData.budget.savings20.percentage.toFixed(0)}% of target achieved
+
+LEFTOVER BALANCE SAVINGS:
+- Target: RM ${budgetData.budget.leftover.target.toFixed(2)}
+- Saved: RM ${budgetData.budget.leftover.saved.toFixed(2)}
+- Remaining: RM ${budgetData.budget.leftover.pending.toFixed(2)}
+- ${budgetData.budget.leftover.percentage.toFixed(0)}% of target achieved
+
+TOTALS:
+- Total Saved This Month: RM ${budgetData.totals.savedThisMonth.toFixed(2)}
+- Total Saved All Time: RM ${budgetData.totals.savedAllTime.toFixed(2)}
+- Total Needs Spent: RM ${budgetData.totals.needsSpent.toFixed(2)}
+- Total Wants Spent: RM ${budgetData.totals.wantsSpent.toFixed(2)}
+- Current Available Balance: RM ${budgetData.totals.displayBalance.toFixed(2)}
+`.trim();
+}
+
+// ==========================================
+// 📡 6. API ENDPOINTS
+// ==========================================
+
+app.post('/predict-transaction', async (req, res) => {
+  try {
+    const { description } = req.body;
+    const prediction = await predictTransactionInternal(description);
+    console.log(`[Transaction] "${description}" -> ${prediction.category} (${prediction.confidence.category}) / ${prediction.subcategory} (${prediction.confidence.subcategory})`);
+    res.json({ input: description, prediction: prediction });
+  } catch (error) {
+    console.error('Trans Error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/chat/stream', async (req, res) => {
+  const requestStart = Date.now();
+
+  try {
+    const { message, history, transactions, userProfile, budgetContext } = req.body; // ADDED: budgetContext
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+
+    // DEBUG: Log what transactions are being received
+    console.log(`📦 Received ${transactions?.length || 0} transactions from frontend`);
+    if (transactions?.length > 0) {
+      console.log(`   First transaction date: ${transactions[0]?.date}`);
+    }
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    res.flushHeaders();
+
+    const sendEvent = (event, data) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      if (typeof res.flush === 'function') res.flush();
+    };
+
+    sendEvent('thinking', { message: 'Processing your request...' });
+
+    // Check if this is a location query that needs web search
+    const isLocationQuery = detectLocationQuery(message);
+
+    // Get month key helper
+    const getMonthKey = (dateStr) => {
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const [intentResult, relevantTips, userContext, dosmContext, transactionContext, webSearchResult] = await Promise.allSettled([
+      predictIntentInternal(message),
+      Promise.resolve(getRelevantTips(message)),
+      Promise.resolve(userProfile ? `
+Here is my complete user profile for context:
+- Name: ${userProfile.name}
+- Age: ${userProfile.age}
+- State: ${userProfile.state}
+- Occupation: ${userProfile.occupation}
+- Monthly Income: RM ${userProfile.monthlyIncome}
+- Main Financial Goal: ${userProfile.financialGoals}
+- Biggest Money Challenge: ${userProfile.financialSituation}
+- My Spending Style: ${userProfile.riskTolerance}
+- My Tracking Method (Before this app): ${userProfile.cashFlow}
+- Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
+`.trim() : ''),
+      (async () => {
+        const stateData = userProfile?.state ?
+          (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) :
+          dosmRAGData['Nasional'] || '';
+        return stateData ? `
+Here is relevant statistical data for my location (from DOSM):
+${stateData}
+`.trim() : '';
+      })(),
+      Promise.resolve((() => {
+        if (!transactions || transactions.length === 0) return '';
+
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+        // Helper: Parse date from transaction
+        const parseDate = (dateStr) => {
+          if (!dateStr) return null;
+          return new Date(dateStr.split('T')[0]);
+        };
+
+        // Helper: Get start of week (Monday)
+        const getStartOfWeek = (date) => {
+          const d = new Date(date);
+          const day = d.getDay();
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          d.setDate(diff);
+          d.setHours(0, 0, 0, 0);
+          return d;
+        };
+
+        // Helper: Format date range
+        const formatDate = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+        // Calculate time range boundaries
+        const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+        const startOfYesterday = new Date(startOfToday); startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+        const startOfThisWeek = getStartOfWeek(today);
+        const startOfLastWeek = new Date(startOfThisWeek); startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+        const endOfLastWeek = new Date(startOfThisWeek); endOfLastWeek.setDate(endOfLastWeek.getDate() - 1);
+        const startOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+        const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+        const startOfThisYear = new Date(today.getFullYear(), 0, 1);
+        const startOfLastYear = new Date(today.getFullYear() - 1, 0, 1);
+        const endOfLastYear = new Date(today.getFullYear() - 1, 11, 31);
+
+        // Filter and summarize transactions by time range
+        const summarizeTransactions = (txns, label) => {
+          const expenses = txns.filter(t => t.type === 'expense');
+          const incomes = txns.filter(t => t.type === 'income');
+          const totalExpense = expenses.reduce((sum, t) => sum + (t.amount || 0), 0);
+          const totalIncome = incomes.reduce((sum, t) => sum + (t.amount || 0), 0);
+          const needsSpent = expenses.filter(t => t.category === 'needs').reduce((sum, t) => sum + (t.amount || 0), 0);
+          const wantsSpent = expenses.filter(t => t.category === 'wants').reduce((sum, t) => sum + (t.amount || 0), 0);
+          const savingsSpent = expenses.filter(t => t.category === 'savings').reduce((sum, t) => sum + (t.amount || 0), 0);
+
+          return {
+            label,
+            count: txns.length,
+            totalIncome: totalIncome.toFixed(2),
+            totalExpense: totalExpense.toFixed(2),
+            netFlow: (totalIncome - totalExpense).toFixed(2),
+            breakdown: { needs: needsSpent.toFixed(2), wants: wantsSpent.toFixed(2), savings: savingsSpent.toFixed(2) },
+            transactions: txns.map(t => ({
+              date: t.date?.split('T')[0],
+              name: t.name,
+              amount: t.type === 'income' ? t.amount : -t.amount,
+              type: t.type,
+              category: t.category
+            }))
+          };
+        };
+
+        // Filter transactions by each time range
+        const todayTxns = transactions.filter(t => parseDate(t.date)?.toDateString() === startOfToday.toDateString());
+        const yesterdayTxns = transactions.filter(t => parseDate(t.date)?.toDateString() === startOfYesterday.toDateString());
+        const thisWeekTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfThisWeek && d <= today; });
+        const lastWeekTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfLastWeek && d <= endOfLastWeek; });
+        const thisMonthTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfThisMonth && d <= today; });
+        const lastMonthTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfLastMonth && d <= endOfLastMonth; });
+        const thisYearTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfThisYear && d <= today; });
+        const lastYearTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfLastYear && d <= endOfLastYear; });
+
+        let context = `--- TRANSACTION DATA (PRE-CALCULATED FOR ACCURACY) ---\n`;
+        context += `Current Date: ${formatDate(today)} (${today.toLocaleDateString('en-US', { weekday: 'long' })})\n`;
+        context += `Total Transactions in Database: ${transactions.length}\n\n`;
+
+        context += `=== TIME RANGE SUMMARIES (USE THESE FOR WIDGETS) ===\n\n`;
+
+        // Today
+        const todaySummary = summarizeTransactions(todayTxns, 'TODAY');
+        context += `📅 TODAY (${formatDate(today)}):\n`;
+        context += `   Transactions: ${todaySummary.count} | Income: RM ${todaySummary.totalIncome} | Expense: RM ${todaySummary.totalExpense} | Net: RM ${todaySummary.netFlow}\n`;
+        if (todaySummary.count > 0) context += `   Items: ${JSON.stringify(todaySummary.transactions)}\n`;
+        context += `\n`;
+
+        // Yesterday
+        const yesterdaySummary = summarizeTransactions(yesterdayTxns, 'YESTERDAY');
+        context += `📅 YESTERDAY (${formatDate(startOfYesterday)}):\n`;
+        context += `   Transactions: ${yesterdaySummary.count} | Income: RM ${yesterdaySummary.totalIncome} | Expense: RM ${yesterdaySummary.totalExpense} | Net: RM ${yesterdaySummary.netFlow}\n`;
+        if (yesterdaySummary.count > 0) context += `   Items: ${JSON.stringify(yesterdaySummary.transactions)}\n`;
+        context += `\n`;
+
+        // This Week
+        const thisWeekSummary = summarizeTransactions(thisWeekTxns, 'THIS WEEK');
+        context += `📅 THIS WEEK (${formatDate(startOfThisWeek)} - ${formatDate(today)}):\n`;
+        context += `   Transactions: ${thisWeekSummary.count} | Income: RM ${thisWeekSummary.totalIncome} | Expense: RM ${thisWeekSummary.totalExpense} | Net: RM ${thisWeekSummary.netFlow}\n`;
+        context += `   Breakdown: Needs RM ${thisWeekSummary.breakdown.needs} | Wants RM ${thisWeekSummary.breakdown.wants} | Savings RM ${thisWeekSummary.breakdown.savings}\n`;
+        if (thisWeekSummary.count > 0 && thisWeekSummary.count <= 10) context += `   Items: ${JSON.stringify(thisWeekSummary.transactions)}\n`;
+        context += `\n`;
+
+        // Last Week
+        const lastWeekSummary = summarizeTransactions(lastWeekTxns, 'LAST WEEK');
+        context += `📅 LAST WEEK (${formatDate(startOfLastWeek)} - ${formatDate(endOfLastWeek)}):\n`;
+        context += `   Transactions: ${lastWeekSummary.count} | Income: RM ${lastWeekSummary.totalIncome} | Expense: RM ${lastWeekSummary.totalExpense} | Net: RM ${lastWeekSummary.netFlow}\n`;
+        context += `   Breakdown: Needs RM ${lastWeekSummary.breakdown.needs} | Wants RM ${lastWeekSummary.breakdown.wants} | Savings RM ${lastWeekSummary.breakdown.savings}\n`;
+        context += `\n`;
+
+        // This Month
+        const thisMonthSummary = summarizeTransactions(thisMonthTxns, 'THIS MONTH');
+        context += `📅 THIS MONTH (${today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}):\n`;
+        context += `   Transactions: ${thisMonthSummary.count} | Income: RM ${thisMonthSummary.totalIncome} | Expense: RM ${thisMonthSummary.totalExpense} | Net: RM ${thisMonthSummary.netFlow}\n`;
+        context += `   Breakdown: Needs RM ${thisMonthSummary.breakdown.needs} | Wants RM ${thisMonthSummary.breakdown.wants} | Savings RM ${thisMonthSummary.breakdown.savings}\n`;
+        if (thisMonthSummary.count <= 20) context += `   Items: ${JSON.stringify(thisMonthSummary.transactions)}\n`;
+        context += `\n`;
+
+        // Last Month  
+        const lastMonthSummary = summarizeTransactions(lastMonthTxns, 'LAST MONTH');
+        context += `📅 LAST MONTH (${startOfLastMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}):\n`;
+        context += `   Transactions: ${lastMonthSummary.count} | Income: RM ${lastMonthSummary.totalIncome} | Expense: RM ${lastMonthSummary.totalExpense} | Net: RM ${lastMonthSummary.netFlow}\n`;
+        context += `   Breakdown: Needs RM ${lastMonthSummary.breakdown.needs} | Wants RM ${lastMonthSummary.breakdown.wants} | Savings RM ${lastMonthSummary.breakdown.savings}\n`;
+        context += `\n`;
+
+        // This Year
+        const thisYearSummary = summarizeTransactions(thisYearTxns, 'THIS YEAR');
+        context += `📅 THIS YEAR (${today.getFullYear()}):\n`;
+        context += `   Transactions: ${thisYearSummary.count} | Income: RM ${thisYearSummary.totalIncome} | Expense: RM ${thisYearSummary.totalExpense} | Net: RM ${thisYearSummary.netFlow}\n`;
+        context += `   Breakdown: Needs RM ${thisYearSummary.breakdown.needs} | Wants RM ${thisYearSummary.breakdown.wants} | Savings RM ${thisYearSummary.breakdown.savings}\n`;
+        context += `\n`;
+
+        // Last Year
+        const lastYearSummary = summarizeTransactions(lastYearTxns, 'LAST YEAR');
+        context += `📅 LAST YEAR (${today.getFullYear() - 1}):\n`;
+        context += `   Transactions: ${lastYearSummary.count} | Income: RM ${lastYearSummary.totalIncome} | Expense: RM ${lastYearSummary.totalExpense} | Net: RM ${lastYearSummary.netFlow}\n`;
+        context += `   Breakdown: Needs RM ${lastYearSummary.breakdown.needs} | Wants RM ${lastYearSummary.breakdown.wants} | Savings RM ${lastYearSummary.breakdown.savings}\n`;
+        context += `\n`;
+
+        context += `=== IMPORTANT: USE THE PRE-CALCULATED VALUES ABOVE ===\n`;
+        context += `When generating [WIDGET_DATA], use the EXACT numbers from the summaries above.\n`;
+        context += `Do NOT recalculate - the summaries are already accurate.\n`;
+
+        return context.trim();
+      })()),
+      // Web search for location queries
+      (() => {
+        if (!isLocationQuery) {
+          return Promise.resolve(null);
+        }
+
+        // Auto-append "halal" to food queries if not present
+        // This ensures we get safe results from the start
+        const foodKeywords = ['makan', 'food', 'restaurant', 'cafe', 'warung', 'kedai', 'sarapan', 'lunch', 'dinner'];
+        const isFoodQuery = foodKeywords.some(kw => message.toLowerCase().includes(kw));
+        const hasHalalTerm = message.toLowerCase().includes('halal') || message.toLowerCase().includes('non-halal');
+
+        let searchQuery = message;
+        if (isFoodQuery && !hasHalalTerm) {
+          searchQuery += " halal"; // Force Halal search
+          console.log(`🛡️ Auto-appending 'halal' for safety: "${searchQuery}"`);
+        }
+        return searchWeb(searchQuery);
+      })()
+    ]).then(results => results.map(r => r.status === 'fulfilled' ? r.value : null));
+
+    const intentPrediction = intentResult;
+
+    // Detect short follow-up queries that need conversation context
+    // BUT: If model is highly confident (≥80%) AND intent has local response, don't bypass!
+    const isShortFollowUp = message.trim().length < 20 && (history || []).length > 0;
+    const hasWebResults = webSearchResult && webSearchResult.results;
+
+    // Extract confidence as number for comparison
+    const confidenceNum = intentPrediction ? parseFloat(intentPrediction.confidence) : 0;
+    const isHighConfidenceLocal = confidenceNum >= 80 &&
+      intentPrediction?.intent !== 'COMPLEX_ADVICE' &&
+      localResponses[intentPrediction?.intent];
+
+    // Check for local response - BUT bypass if:
+    // 1. It's a location query with web results (we should use web data!)
+    // 2. It's a short follow-up query (needs conversation history) AND NOT high confidence local
+    const shouldBypassLocal = (isLocationQuery && hasWebResults) || (isShortFollowUp && !isHighConfidenceLocal);
+
+    if (!shouldBypassLocal &&
+      intentPrediction &&
+      intentPrediction.intent !== 'COMPLEX_ADVICE' &&
+      intentPrediction.intent !== 'GARBAGE' &&
+      localResponses[intentPrediction.intent]) {
+
+      console.log(`⚡ Serving Local Response: ${intentPrediction.intent}`);
+
+      const responseData = localResponses[intentPrediction.intent];
+      const localMsg = Array.isArray(responseData)
+        ? responseData[Math.floor(Math.random() * responseData.length)]
+        : responseData;
+
+      const words = localMsg.split(' ');
+
+      for (let i = 0; i < words.length; i++) {
+        sendEvent('token', {
+          content: words[i] + ' ',
+          done: false
+        });
+        await new Promise(resolve => setTimeout(resolve, 30));
+      }
+
+      sendEvent('done', {
+        source: 'local',
+        intent: intentPrediction.intent,
+        response_time_ms: Date.now() - requestStart
+      });
+
+      return res.end();
+    }
+
+    // Log why we're going to Grok
+    if (shouldBypassLocal) {
+      if (isLocationQuery && hasWebResults) {
+        console.log(`🌐 Bypassing local response - location query with web results`);
+      } else if (isShortFollowUp) {
+        console.log(`💬 Bypassing local response - short follow-up query needs context`);
+      }
+    }
+
+    // Stream from Grok
+    console.log('🤖 Streaming from Grok...');
+
+    const tipsContext = relevantTips.length > 0 ? `
+--- EXPERT FINANCIAL KNOWLEDGE BASE ---
+${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
+` : '';
+
+    // Use provided budgetContext OR calculate fallback
+    let finalBudgetContext = budgetContext;
+    if (!finalBudgetContext && transactions && userProfile) {
+      console.log('📊 Calculating budget data on server (fallback)');
+      const budgetData = calculateBudgetData(transactions, userProfile);
+      finalBudgetContext = formatBudgetForRAG(budgetData);
+    }
+
+    // Format web search results for the prompt
+    let webSearchContext = '';
+    if (webSearchResult && webSearchResult.results) {
+      webSearchContext = `--- WEB SEARCH RESULTS ---
+${webSearchResult.answer ? `Summary: ${webSearchResult.answer}\n\n` : ''}Search Results:
+${webSearchResult.results}
+
+IMPORTANT: Only use the information above. Do not invent additional places or details.
+--- END WEB SEARCH RESULTS ---`;
+      console.log('🌐 Added web search results to prompt');
+    }
+
+    const augmentedPrompt = [
+      `Here is my latest message: "${message}"`,
+      userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
+      finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext,
+      appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
+      dosmContext && '--- STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
+      tipsContext,
+      transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext,
+      webSearchContext // Add web search results if available
+    ].filter(Boolean).join('\n\n');
+
+    const recentHistory = (history || []).slice(-8);
+    const messages = [
+      { role: 'system', content: SYSTEM_INSTRUCTION },
+      ...recentHistory.map(msg => ({
+        role: msg.role === 'model' ? 'assistant' : 'user',
+        content: msg.parts.map(p => p.text).join('')
+      })),
+      { role: 'user', content: augmentedPrompt }
+    ];
+
+    const stream = await openAI.chat.completions.create({
+      model: "x-ai/grok-4.1-fast",
+      messages: messages,
+      // Lower temperature for location/web queries to reduce hallucination
+      // Higher temperature for casual chat
+      temperature: (isLocationQuery || webSearchResult) ? 0.1 : 0.5,
+      max_tokens: 500,
+      stream: true
+    });
+
+    const heartbeat = setInterval(() => {
+      sendEvent('heartbeat', { status: 'alive' });
+    }, 15000);
+
+    res.on('close', () => {
+      clearInterval(heartbeat);
+    });
+
+    let streamedContent = '';
+
+    try {
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          streamedContent += content;
+          sendEvent('token', {
+            content: content,
+            done: false
+          });
+        }
+      }
+
+      clearInterval(heartbeat);
+      sendEvent('done', {
+        source: 'grok',
+        response_time_ms: Date.now() - requestStart
+      });
+
+    } catch (streamError) {
+      clearInterval(heartbeat);
+
+      // Handle premature close - stream was interrupted
+      if (streamError.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+        console.log('⚠️ Stream closed early, but partial response received');
+
+        // If we got some content, treat it as success
+        if (streamedContent.length > 20) {
+          sendEvent('done', {
+            source: 'grok',
+            partial: true,
+            response_time_ms: Date.now() - requestStart
+          });
+        } else {
+          // Not enough content - send a fallback
+          sendEvent('token', {
+            content: "I'm having a slight connection hiccup 🐻 Could you ask me again?",
+            done: false
+          });
+          sendEvent('done', { source: 'fallback' });
+        }
+      } else {
+        throw streamError; // Re-throw other errors
+      }
+    }
+
+    res.end();
+
+  } catch (error) {
+    console.error('💥 Streaming Error:', error);
+    res.write(`event: error\n`);
+    res.write(`data: ${JSON.stringify({ error: 'Stream failed 🐻💔' })}\n\n`);
+    res.end();
+  }
+});
+
+app.post('/scan-receipt', upload.single('image'), async (req, res) => {
+  try {
+    let base64Image;
+
+    if (req.file) {
+      base64Image = req.file.buffer.toString('base64');
+    } else if (req.body.image) {
+      base64Image = req.body.image;
+    } else {
+      return res.status(400).json({ error: 'No image provided' });
+    }
+
+    console.log('🖼️ Scanning receipt with Gemini Vision...');
+
+    const prompt = `
+      Analyze this receipt image and extract details in STRICT JSON format.
+      
+      Extraction Logic:
+      1. Merchant: Look for the business/shop/stall name at the very TOP of the receipt.
+      2. Description: Create a SHORT, classifier-friendly summary:
+         - Combine the FOOD TYPE or BRAND with a simple category word.
+         - Examples: "Ayam Gepuk Meal", "McDonalds Burger", "Starbucks Coffee", "7-Eleven Snacks", "Grocery Shopping", "Pharmacy Medicine".
+         - Do NOT list every item (e.g., avoid "Ayam Bumbu Crispy, Sambal Extra Pedas, Teh O Ais").
+         - Do NOT use overly generic terms alone (e.g., avoid just "Meal" or "Food").
+         - The description should be 2-4 words max.
+
+      JSON Structure:
+      {
+        "amount": number,
+        "merchant": "string",
+        "description": "string" (2-4 word summary combining type/brand + category),
+        "date": "YYYY-MM-DD"
+      }
+      
+      Context Rules:
+      - Works for ANY receipt (restaurants, groceries, pharmacies, retail, etc).
+      - Return ONLY the JSON. No markdown backticks.
+    `;
+
+    // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
+    const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
+    // Note: Upgraded to Gemini 2.5 Flash (New Stable 2026)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
+
+    const response = await axios.post(url, {
+      contents: [{
+        parts: [
+          { text: prompt },
+          { inlineData: { mimeType: "image/jpeg", data: base64Image } }
+        ]
+      }]
+    });
+
+    const aiText = response.data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+    let result = JSON.parse(aiText);
+
+    // Defensive: If AI returns an array or unexpected structure, extract the first item
+    if (Array.isArray(result)) result = result[0];
+    if (result.transactions && Array.isArray(result.transactions)) result = result.transactions[0];
+
+    // --- INTEGRATE YOUR OWN AI BRAIN ---
+    // Instead of trusting the Cloud AI, we use your local Beruang TensorFlow categorization!
+    const query = result.description || result.merchant || 'Unknown';
+    const prediction = await predictTransactionInternal(query);
+
+    result.category = prediction.category;
+    result.subCategory = prediction.subCategory;
+    result.isAi = prediction.isAi;
+
+    console.log(`✅ Scan successful. Local AI categorized "${query}" as ${result.category}`);
+    res.json(result);
+
+  } catch (error) {
+    console.error('💥 Scan Error Details:', error.response?.data || error.message);
+
+    if (error.response?.data?.error?.code === 404) {
+      return res.status(404).json({
+        error: `Google AI Model not found. Details: ${JSON.stringify(error.response?.data)}`
+      });
+    }
+
+    if (error.message?.includes('free-models-per-day')) {
+      return res.status(429).json({
+        error: 'OpenRouter daily free limit reached! 🐻🚫 Try a different API key or wait until tomorrow.'
+      });
+    }
+
+    if (error.status === 429) {
+      return res.status(429).json({
+        error: 'AI is currently busy (Rate Limited). Please try again in 15-30 seconds! ⏳🐻'
+      });
+    }
+
+    res.status(500).json({ error: 'Failed to process receipt 🐻💔' });
+  }
+});
+
+app.post('/import-data', async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text) return res.status(400).json({ error: 'No text provided' });
+
+    console.log('📄 Parsing bulk data with Gemini...');
+
+    const prompt = `
+      Analyze the following text and extract a list of transactions. 
+      The text might be messy (from Excel, Notes, or Chat).
+      Return a JSON object with a "transactions" key containing an array of objects:
+      {
+        "transactions": [
+          {
+            "name": "string (Description)",
+            "amount": number (Amount spent),
+            "date": "YYYY-MM-DD",
+            "category": "needs" | "wants" | "savings"
+          }
+        ]
+      }
+      Rules:
+      1. Correct common typos.
+      2. If date is missing, omit it or use current date if mentioned.
+      3. For category, follow 50/30/20 rule: essentials (needs), lifestyle (wants), savings/debt (savings).
+      4. RETURN ONLY JSON.
+      
+      Text to parse:
+      "${text}"
+    `;
+
+    // --- DIRECT GOOGLE AI (Your Personal Quota: 1,500/day) ---
+    const googleApiKey = process.env.GOOGLE_GENAI_API_KEY;
+    // Note: Upgraded to Gemini 2.5 Flash (New Stable 2026)
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${googleApiKey}`;
+
+    const response = await axios.post(url, {
+      contents: [{
+        parts: [{ text: prompt }]
+      }]
+    });
+
+    const aiText = response.data.candidates[0].content.parts[0].text.replace(/```json|```/g, '').trim();
+    const result = JSON.parse(aiText);
+    console.log(`✅ Bulk Import successful: Found ${result.transactions?.length || 0} items.`);
+    res.json(result);
+
+  } catch (error) {
+    console.error('💥 Import Error:', error);
+
+    if (error.message?.includes('free-models-per-day')) {
+      return res.status(429).json({
+        error: 'OpenRouter daily free limit reached! 🐻🚫 Try a different API key or wait until tomorrow.'
+      });
+    }
+
+    res.status(500).json({ error: 'Failed to parse bulk data 🐻💔' });
+  }
+});
+
+app.post('/chat', async (req, res) => {
+  try {
+    const { message, history, transactions, userProfile, budgetContext } = req.body;
+
+    if (!message || !message.trim()) {
+      return res.status(400).json({ error: 'Message cannot be empty' });
+    }
+
+    // Get month key helper
+    const getMonthKey = (dateStr) => {
+      const d = new Date(dateStr);
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    };
+
+    const relevantTips = getRelevantTips(message);
+
+    const userContext = userProfile ? `
+Here is my complete user profile for context:
+- Name: ${userProfile.name}
+- Age: ${userProfile.age}
+- State: ${userProfile.state}
+- Occupation: ${userProfile.occupation}
+- Monthly Income: RM ${userProfile.monthlyIncome}
+- Main Financial Goal: ${userProfile.financialGoals}
+- Biggest Money Challenge: ${userProfile.financialSituation}
+- My Spending Style: ${userProfile.riskTolerance}
+- My Tracking Method (Before this app): ${userProfile.cashFlow}
+- Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
+`.trim() : '';
+
+    const dosmContext = userProfile?.state ?
+      (dosmRAGData[userProfile.state] || dosmRAGData['Nasional']) :
+      dosmRAGData['Nasional'] || '';
+
+    const transactionContext = (() => {
+      if (!transactions || transactions.length === 0) return '';
+
+      const today = new Date();
+      const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+      const todaysTransactions = transactions.filter(t => {
+        if (!t.date) return false;
+        const txDate = t.date.split('T')[0];
+        return txDate === todayStr;
+      });
+
+      let context = `--- TRANSACTION CONTEXT ---\n`;
+      context += `Current Date: ${todayStr} (Use this to interpret "today", "yesterday", "last week", specific dates, or months)\n`;
+      context += `Current Month: ${today.toLocaleString('en-US', { month: 'long', year: 'numeric' })}\n`;
+
+      if (todaysTransactions.length > 0) {
+        context += `\nTODAY'S TRANSACTIONS (${todaysTransactions.length} items):\n`;
+        context += JSON.stringify(todaysTransactions, null, 2);
+      } else {
+        context += `\nTODAY'S TRANSACTIONS: None logged yet.\n`;
+      }
+
+      context += `\nALL RECENT TRANSACTIONS (check dates to answer any date-specific query):\n`;
+      context += JSON.stringify(transactions.slice(0, 15), null, 2);
+
+      return context.trim();
+    })();
+
+    const tipsContext = relevantTips.length > 0 ? `
+--- EXPERT FINANCIAL KNOWLEDGE BASE ---
+${relevantTips.map(t => `- [${t.type}] ${t.topic}: ${t.advice}`).join('\n')}
+` : '';
+
+    // Use provided budgetContext OR calculate fallback
+    let finalBudgetContext = budgetContext;
+    if (!finalBudgetContext && transactions && userProfile) {
+      console.log('📊 Calculating budget data on server (fallback)');
+      const budgetData = calculateBudgetData(transactions, userProfile);
+      finalBudgetContext = formatBudgetForRAG(budgetData);
+    }
+
+    const augmentedPrompt = [
+      `Here is my latest message: "${message}"`,
+      userContext && '--- MY PROFILE CONTEXT ---\n' + userContext,
+      finalBudgetContext && '--- CURRENT MONTH BUDGET & SAVINGS STATUS ---\n' + finalBudgetContext,
+      appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
+      dosmContext && '--- STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
+      tipsContext,
+      transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext
+    ].filter(Boolean).join('\n\n');
+
+    const recentHistory = (history || []).slice(-8);
+    const messages = [
+      { role: 'system', content: SYSTEM_INSTRUCTION },
+      ...recentHistory.map(msg => ({
+        role: msg.role === 'model' ? 'assistant' : 'user',
+        content: msg.parts.map(p => p.text).join('')
+      })),
+      { role: 'user', content: augmentedPrompt }
+    ];
+
+    const completion = await openAI.chat.completions.create({
+      model: "x-ai/grok-4.1-fast",
+      messages: messages,
+      temperature: 0.5,
+      max_tokens: 150
+    });
+
+    const botResponse = completion.choices[0]?.message?.content || "I couldn't generate a response.";
+
+    res.json({
+      message: botResponse,
+      budget_context_used: !!finalBudgetContext
+    });
+
+  } catch (error) {
+    console.error('Chat Error:', error);
+    res.status(500).json({ error: 'Chat processing failed' });
+  }
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'online',
+    mode: 'UNIFIED_SERVER',
+    models: {
+      transaction: !!transModel ? 'loaded' : 'missing',
+      intent: !!intentModel ? 'loaded' : 'missing'
+    },
+    grok: !!process.env.OPENROUTER_API_KEY ? 'configured' : 'missing_api_key',
+    webSearch: !!process.env.TAVILY_API_KEY ? 'configured' : 'not_configured',
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ==========================================
+// 🚀 7. STARTUP & WARMUP
+// ==========================================
+
+async function loadModels() {
+  console.log('------------------------------------------------');
+  console.log('🔄 INITIALIZING UNIFIED BERUANG SERVER...');
+
+  try {
+    if (fs.existsSync(TRANS_METADATA_PATH)) {
+      transModel = await tf.loadLayersModel(TRANS_MODEL_PATH);
+      transMetadata = await fs.readJson(TRANS_METADATA_PATH);
+      console.log('✅ Transaction Model Loaded');
+    } else {
+      console.warn('⚠️ Transaction Model MISSING. Run: npm run train:transaction');
+    }
+  } catch (error) {
+    console.error('❌ Transaction Model Load Error:', error.message);
+  }
+
+  try {
+    if (fs.existsSync(INTENT_METADATA_PATH)) {
+      intentModel = await tf.loadLayersModel(INTENT_MODEL_PATH);
+      intentMetadata = await fs.readJson(INTENT_METADATA_PATH);
+
+      console.log('⏳ Loading MiniLM Extractor...');
+      intentExtractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+
+      console.log('✅ Intent Model & Extractor Loaded');
+      const labelCount = intentMetadata.labelMap ? Object.keys(intentMetadata.labelMap).length : 0;
+      console.log(`   - Loaded ${labelCount} intents`);
+    } else {
+      console.warn('⚠️ Intent Model MISSING. Run: npm run gen:intent && npm run train:intent');
+    }
+  } catch (error) {
+    console.error('❌ Intent Model Load Error:', error.message);
+  }
+}
+
+async function warmupConnections() {
+  console.log('🔥 Warming up connections...');
+  try {
+    if (intentModel && intentExtractor) {
+      console.log('   ...Pre-heating TensorFlow...');
+      await predictIntentInternal('hello');
+      console.log('   ✅ Local AI warmed up');
+    } else {
+      console.log('   ⚠️  Local AI skipped (Model not loaded)');
+    }
+  } catch (err) {
+    console.log('   ⚠️  Local AI warmup failed:', err.message);
+  }
+
+  try {
+    await openAI.chat.completions.create({
+      model: "x-ai/grok-4.1-fast",
+      messages: [{ role: 'user', content: 'ping' }],
+      max_tokens: 5
+    });
+    console.log('   ✅ Grok API warmed up');
+  } catch (err) {
+    console.log('   ⚠️  Grok API warmup failed:', err);
+  }
+}
+
+async function startServer() {
+  await loadModels();
+
+  app.listen(PORT, async () => {
+    console.log('================================================');
+    console.log('🐻 BERUANG ORCHESTRATOR (WITH STREAMING!)');
+    console.log('================================================');
+    console.log(`✅ Running on http://localhost:${PORT}`);
+    console.log(`   - POST /chat/stream (STREAMING - USE THIS!) 🔥`);
+    console.log(`   - POST /chat (Legacy non-streaming)`);
+    console.log(`   - POST /predict-transaction (NEW! Transaction AI) 🤖`);
+    console.log(`   - GET  /health (System status)`);
+    console.log('');
+    console.log('Speed Optimizations:');
+    console.log(`   ⚡ Real-time streaming responses`);
+    console.log(`   ⚡ Pre-indexed expert tips`);
+    console.log(`   ⚡ HTTP Keep-Alive connections`);
+    console.log(`   ⚡ 5-way parallel processing`);
+    console.log(`   ⚡ Connection warmup`);
+    console.log('');
+    console.log('Services:');
+    console.log(`   - AI Backend: INTEGRATED (Internal TensorFlow)`);
+    console.log(`   - Grok API: ${process.env.OPENROUTER_API_KEY ? '✅ Configured' : '⚠️  Missing'}`);
+    console.log(`   - Web Search (Tavily): ${process.env.TAVILY_API_KEY ? '✅ Configured' : '⚠️  Not configured (location queries will skip search)'}`);
+    console.log(`   - RAG Data (DOSM): ${Object.keys(dosmRAGData).length > 0 ? '✅ Loaded' : '⚠️  Missing'}`);
+    console.log(`   - RAG Data (Expert): ${expertTips.length > 0 ? `✅ ${expertTips.length} tips` : '⚠️  Missing'}`);
+    console.log(`   - Tips Index: ${tipsIndex.size > 0 ? `✅ ${tipsIndex.size} keywords` : '⚠️  Not built'}`);
+    console.log(`   - App Manual (RAG): ${appManualContext.length > 0 ? '✅ Loaded for Grok' : '⚠️  Missing'}`);
+    console.log(`   - Budget Context: ✅ READY (Frontend-provided)`);
+    console.log('================================================');
+
+    await warmupConnections();
+    console.log('🚀 Server ready with STREAMING support!\n');
+  });
+}
+
+startServer();
