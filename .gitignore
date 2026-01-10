@@ -7,7 +7,7 @@
 
 # Generated Data
 # Assuming this is created by your preprocess-dosm.js script
-dosm_data.json
+# dosm_data.json (Un-ignored so Render can use it)
 
 # Logs
 logs
