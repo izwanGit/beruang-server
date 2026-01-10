@@ -9,7 +9,7 @@ const budgetService = require('../services/finance/budgetService');
 const knowledgeBase = require('../models/knowledgeBase');
 
 /**
- * Build transaction context for RAG
+ * Build transaction context for RAG - COMPLETE VERSION FROM ORIGINAL
  */
 function buildTransactionContext(transactions) {
     if (!transactions || transactions.length === 0) return '';
@@ -33,8 +33,18 @@ function buildTransactionContext(transactions) {
 
     const formatDate = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
+    // Calculate time range boundaries
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const startOfYesterday = new Date(startOfToday); startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    const startOfThisWeek = getStartOfWeek(today);
+    const startOfLastWeek = new Date(startOfThisWeek); startOfLastWeek.setDate(startOfLastWeek.getDate() - 7);
+    const endOfLastWeek = new Date(startOfThisWeek); endOfLastWeek.setDate(endOfLastWeek.getDate() - 1);
     const startOfThisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+    const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+    const startOfThisYear = new Date(today.getFullYear(), 0, 1);
+    const startOfLastYear = new Date(today.getFullYear() - 1, 0, 1);
+    const endOfLastYear = new Date(today.getFullYear() - 1, 11, 31);
 
     const summarizeTransactions = (txns, label) => {
         const expenses = txns.filter(t => t.type === 'expense');
@@ -62,17 +72,82 @@ function buildTransactionContext(transactions) {
         };
     };
 
+    // Filter transactions by each time range
     const todayTxns = transactions.filter(t => parseDate(t.date)?.toDateString() === startOfToday.toDateString());
+    const yesterdayTxns = transactions.filter(t => parseDate(t.date)?.toDateString() === startOfYesterday.toDateString());
+    const thisWeekTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfThisWeek && d <= today; });
+    const lastWeekTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfLastWeek && d <= endOfLastWeek; });
     const thisMonthTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfThisMonth && d <= today; });
+    const lastMonthTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfLastMonth && d <= endOfLastMonth; });
+    const thisYearTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfThisYear && d <= today; });
+    const lastYearTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfLastYear && d <= endOfLastYear; });
 
-    let context = `--- TRANSACTION DATA ---\n`;
-    context += `Current Date: ${formatDate(today)}\n`;
+    let context = `--- TRANSACTION DATA (PRE-CALCULATED FOR ACCURACY) ---\n`;
+    context += `Current Date: ${formatDate(today)} (${today.toLocaleDateString('en-US', { weekday: 'long' })})\n`;
+    context += `Total Transactions in Database: ${transactions.length}\n\n`;
+    context += `=== TIME RANGE SUMMARIES (USE THESE FOR WIDGETS) ===\n\n`;
 
+    // Today
     const todaySummary = summarizeTransactions(todayTxns, 'TODAY');
-    context += `TODAY: ${todaySummary.count} txns | Expense: RM ${todaySummary.totalExpense}\n`;
+    context += `📅 TODAY (${formatDate(today)}):\n`;
+    context += `   Transactions: ${todaySummary.count} | Income: RM ${todaySummary.totalIncome} | Expense: RM ${todaySummary.totalExpense} | Net: RM ${todaySummary.netFlow}\n`;
+    if (todaySummary.count > 0) context += `   Items: ${JSON.stringify(todaySummary.transactions)}\n`;
+    context += `\n`;
 
+    // Yesterday
+    const yesterdaySummary = summarizeTransactions(yesterdayTxns, 'YESTERDAY');
+    context += `📅 YESTERDAY (${formatDate(startOfYesterday)}):\n`;
+    context += `   Transactions: ${yesterdaySummary.count} | Income: RM ${yesterdaySummary.totalIncome} | Expense: RM ${yesterdaySummary.totalExpense} | Net: RM ${yesterdaySummary.netFlow}\n`;
+    if (yesterdaySummary.count > 0) context += `   Items: ${JSON.stringify(yesterdaySummary.transactions)}\n`;
+    context += `\n`;
+
+    // This Week
+    const thisWeekSummary = summarizeTransactions(thisWeekTxns, 'THIS WEEK');
+    context += `📅 THIS WEEK (${formatDate(startOfThisWeek)} - ${formatDate(today)}):\n`;
+    context += `   Transactions: ${thisWeekSummary.count} | Income: RM ${thisWeekSummary.totalIncome} | Expense: RM ${thisWeekSummary.totalExpense} | Net: RM ${thisWeekSummary.netFlow}\n`;
+    context += `   Breakdown: Needs RM ${thisWeekSummary.breakdown.needs} | Wants RM ${thisWeekSummary.breakdown.wants} | Savings RM ${thisWeekSummary.breakdown.savings}\n`;
+    if (thisWeekSummary.count > 0 && thisWeekSummary.count <= 10) context += `   Items: ${JSON.stringify(thisWeekSummary.transactions)}\n`;
+    context += `\n`;
+
+    // Last Week
+    const lastWeekSummary = summarizeTransactions(lastWeekTxns, 'LAST WEEK');
+    context += `📅 LAST WEEK (${formatDate(startOfLastWeek)} - ${formatDate(endOfLastWeek)}):\n`;
+    context += `   Transactions: ${lastWeekSummary.count} | Income: RM ${lastWeekSummary.totalIncome} | Expense: RM ${lastWeekSummary.totalExpense} | Net: RM ${lastWeekSummary.netFlow}\n`;
+    context += `   Breakdown: Needs RM ${lastWeekSummary.breakdown.needs} | Wants RM ${lastWeekSummary.breakdown.wants} | Savings RM ${lastWeekSummary.breakdown.savings}\n`;
+    context += `\n`;
+
+    // This Month
     const thisMonthSummary = summarizeTransactions(thisMonthTxns, 'THIS MONTH');
-    context += `THIS MONTH: Needs RM ${thisMonthSummary.breakdown.needs} | Wants RM ${thisMonthSummary.breakdown.wants}\n`;
+    context += `📅 THIS MONTH (${today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}):\n`;
+    context += `   Transactions: ${thisMonthSummary.count} | Income: RM ${thisMonthSummary.totalIncome} | Expense: RM ${thisMonthSummary.totalExpense} | Net: RM ${thisMonthSummary.netFlow}\n`;
+    context += `   Breakdown: Needs RM ${thisMonthSummary.breakdown.needs} | Wants RM ${thisMonthSummary.breakdown.wants} | Savings RM ${thisMonthSummary.breakdown.savings}\n`;
+    if (thisMonthSummary.count <= 20) context += `   Items: ${JSON.stringify(thisMonthSummary.transactions)}\n`;
+    context += `\n`;
+
+    // Last Month  
+    const lastMonthSummary = summarizeTransactions(lastMonthTxns, 'LAST MONTH');
+    context += `📅 LAST MONTH (${startOfLastMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}):\n`;
+    context += `   Transactions: ${lastMonthSummary.count} | Income: RM ${lastMonthSummary.totalIncome} | Expense: RM ${lastMonthSummary.totalExpense} | Net: RM ${lastMonthSummary.netFlow}\n`;
+    context += `   Breakdown: Needs RM ${lastMonthSummary.breakdown.needs} | Wants RM ${lastMonthSummary.breakdown.wants} | Savings RM ${lastMonthSummary.breakdown.savings}\n`;
+    context += `\n`;
+
+    // This Year
+    const thisYearSummary = summarizeTransactions(thisYearTxns, 'THIS YEAR');
+    context += `📅 THIS YEAR (${today.getFullYear()}):\n`;
+    context += `   Transactions: ${thisYearSummary.count} | Income: RM ${thisYearSummary.totalIncome} | Expense: RM ${thisYearSummary.totalExpense} | Net: RM ${thisYearSummary.netFlow}\n`;
+    context += `   Breakdown: Needs RM ${thisYearSummary.breakdown.needs} | Wants RM ${thisYearSummary.breakdown.wants} | Savings RM ${thisYearSummary.breakdown.savings}\n`;
+    context += `\n`;
+
+    // Last Year
+    const lastYearSummary = summarizeTransactions(lastYearTxns, 'LAST YEAR');
+    context += `📅 LAST YEAR (${today.getFullYear() - 1}):\n`;
+    context += `   Transactions: ${lastYearSummary.count} | Income: RM ${lastYearSummary.totalIncome} | Expense: RM ${lastYearSummary.totalExpense} | Net: RM ${lastYearSummary.netFlow}\n`;
+    context += `   Breakdown: Needs RM ${lastYearSummary.breakdown.needs} | Wants RM ${lastYearSummary.breakdown.wants} | Savings RM ${lastYearSummary.breakdown.savings}\n`;
+    context += `\n`;
+
+    context += `=== IMPORTANT: USE THE PRE-CALCULATED VALUES ABOVE ===\n`;
+    context += `When generating [WIDGET_DATA], use the EXACT numbers from the summaries above.\n`;
+    context += `Do NOT recalculate - the summaries are already accurate.\n`;
 
     return context.trim();
 }
@@ -156,11 +231,19 @@ async function streamChat(req, res) {
         // Stream from Grok
         console.log('🤖 Streaming from Grok...');
 
-        // Build context
+        // Build context - COMPLETE VERSION FROM ORIGINAL
         const userContext = userProfile ? `
-User: ${userProfile.name}, ${userProfile.age}, ${userProfile.state}
-Income: RM ${userProfile.monthlyIncome}
-Goal: ${userProfile.financialGoals}
+Here is my complete user profile for context:
+- Name: ${userProfile.name}
+- Age: ${userProfile.age}
+- State: ${userProfile.state}
+- Occupation: ${userProfile.occupation}
+- Monthly Income: RM ${userProfile.monthlyIncome}
+- Main Financial Goal: ${userProfile.financialGoals}
+- Biggest Money Challenge: ${userProfile.financialSituation}
+- My Spending Style: ${userProfile.riskTolerance}
+- My Tracking Method (Before this app): ${userProfile.cashFlow}
+- Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
 `.trim() : '';
 
         const dosmContext = userProfile?.state ? knowledgeBase.getDosmData(userProfile.state) : '';
