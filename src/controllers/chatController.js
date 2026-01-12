@@ -4,7 +4,7 @@
 
 const intentService = require('../services/ai/intentService');
 const llmService = require('../services/ai/llmService');
-const locationDetector = require('../services/rag/locationDetector');
+const onlineDetector = require('../services/rag/onlineDetector');
 const budgetService = require('../services/finance/budgetService');
 const knowledgeBase = require('../models/knowledgeBase');
 
@@ -142,10 +142,10 @@ async function streamChat(req, res) {
             if (typeof res.flush === 'function') res.flush();
         };
 
-        // Check if location query (triggers Grok :online mode)
-        const isLocationQuery = locationDetector.detectLocationQuery(message);
+        // Check if query should go ONLINE via Knowledge Router
+        const isOnlineQuery = onlineDetector.detectOnlineQuery(message);
 
-        if (isLocationQuery) {
+        if (isOnlineQuery) {
             const searchSnippet = message.length > 30 ? message.substring(0, 30) + '...' : message;
             sendEvent('thinking', { message: `Searching the web for "${searchSnippet}"... 🔍` });
         } else {
@@ -164,8 +164,8 @@ async function streamChat(req, res) {
             intentResult?.intent !== 'COMPLEX_ADVICE' &&
             knowledgeBase.hasLocalResponse(intentResult?.intent);
 
-        // Bypass local response for location queries (use Grok :online) or short follow-ups
-        const shouldBypassLocal = isLocationQuery || (isShortFollowUp && !isHighConfidenceLocal);
+        // Bypass local response for online queries (use Grok :online) or short follow-ups
+        const shouldBypassLocal = isOnlineQuery || (isShortFollowUp && !isHighConfidenceLocal);
 
         // Serve local response if applicable
         if (!shouldBypassLocal &&
@@ -196,7 +196,7 @@ async function streamChat(req, res) {
         // Stream from Grok
         console.log('🤖 Streaming from Grok...');
 
-        // Build context - PRUNED FOR LOCATION QUERIES TO SAVE TOKENS
+        // Build context - PRUNED FOR ONLINE QUERIES TO SAVE TOKENS
         const userContext = userProfile ? `
 Here is my complete user profile for context:
 - Name: ${userProfile.name}
@@ -211,15 +211,15 @@ Here is my complete user profile for context:
 - Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
 `.trim() : '';
 
-        // Optimization: Don't send DOSM, Manual, or Tips for location searches
-        const dosmContext = (!isLocationQuery && userProfile?.state) ? knowledgeBase.getDosmData(userProfile.state) : '';
-        const tipsContext = (!isLocationQuery && relevantTips.length > 0) ? `
+        // Optimization: Don't send DOSM, Manual, or Tips for online searches
+        const dosmContext = (!isOnlineQuery && userProfile?.state) ? knowledgeBase.getDosmData(userProfile.state) : '';
+        const tipsContext = (!isOnlineQuery && relevantTips.length > 0) ? `
 Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
 ` : '';
-        const appManualContext = !isLocationQuery ? knowledgeBase.getAppManualContext() : '';
+        const appManualContext = !isOnlineQuery ? knowledgeBase.getAppManualContext() : '';
 
         // Optimization: Use compact transaction context (summaries only) for search
-        const transactionContext = buildTransactionContext(transactions, isLocationQuery);
+        const transactionContext = buildTransactionContext(transactions, isOnlineQuery);
 
         let finalBudgetContext = budgetContext;
         if (!finalBudgetContext && transactions && userProfile) {
@@ -246,7 +246,7 @@ Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
             { role: 'user', content: augmentedPrompt }
         ];
 
-        const stream = await llmService.streamChat(messages, { isLocationQuery });
+        const stream = await llmService.streamChat(messages, { isLocationQuery: isOnlineQuery });
 
         const heartbeat = setInterval(() => {
             sendEvent('heartbeat', { status: 'alive' });

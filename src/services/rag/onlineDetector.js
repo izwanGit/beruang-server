@@ -1,14 +1,55 @@
-// src/services/rag/locationDetector.js
-// Location Query Detection - Used to trigger Grok :online mode
+// src/services/rag/onlineDetector.js
+// Online Query Detection - The "Knowledge Router"
+// Determines if a query should trigger Grok :online mode (Web Search) or stay Offline (RAG/Analysis)
 
 /**
- * Detect if a message is asking about locations/places/restaurants/hotels
- * This triggers Grok's built-in web search (:online mode)
+ * Smart Router for Internet Access
+ * Priority 1: SAFETY (Private Data) -> Force OFFLINE
+ * Priority 2: DISCOVERY (External Info) -> Force ONLINE
+ * Default: OFFLINE (Analysis/Chat)
  */
-function detectLocationQuery(message) {
+function detectOnlineQuery(message) {
     const lowerMsg = message.toLowerCase();
 
-    // Malaysian food names
+    // 1. SAFETY LAYER: Exclusions
+    // If these words appear, we assume the user wants privacy/internal data, regardless of other keywords.
+    const privacyKeywords = [
+        'my spending', 'my budget', 'my transaction', 'my money', 'analyze me',
+        'my expense', 'my income', 'my savings', 'review my', 'check my',
+        'track my', 'log my', 'add expense', 'add income', 'add transaction',
+        'how much did i', 'how much have i', 'am i', 'do i have',
+        'in my app', 'in beruang'
+    ];
+
+    const isPrivateQuery = privacyKeywords.some(kw => lowerMsg.includes(kw));
+
+    if (isPrivateQuery) {
+        console.log(`🛡️ Privacy Guard: Forced OFFLINE for "${message}"`);
+        return false;
+    }
+
+    // 2. DISCOVERY LAYER: General Online Triggers
+    // Words that imply need for external, dynamic, or real-time information
+    const generalOnlineKeywords = [
+        // Time-sensitive
+        'current', 'latest', 'today', 'news', 'update', 'forecast',
+        '2024', '2025', '2026', 'now', 'live',
+
+        // Information/Facts
+        'price', 'harga', 'cost', 'fee', 'fare', 'rate', 'kadar',
+        'dividend', 'dividenden', 'interest', 'bunga',
+        'ceo', 'founder', 'history', 'sejarah', 'who is', 'biography',
+        'meaning', 'definition', 'maksud', 'what is', 'apa itu',
+        'review', 'testimony', 'feedback', // (Generic reviews, not "review my")
+
+        // External Links
+        'website', 'url', 'link', 'site', 'instagram', 'facebook', 'twitter', 'tiktok', 'contact',
+        'address', 'alamat', 'phone', 'tel', 'email'
+    ];
+
+    const hasOnlineKeyword = generalOnlineKeywords.some(kw => lowerMsg.includes(kw));
+
+    // 3. LEGACY LAYER: Detailed Lifestyle/Location Detection (Preserved)
     const foodKeywords = [
         'nasi', 'ayam', 'ikan', 'mee', 'mihun', 'kuey teow', 'roti', 'naan',
         'satay', 'rendang', 'lemak', 'goreng', 'bakar', 'penyet', 'gepuk',
@@ -17,7 +58,6 @@ function detectLocationQuery(message) {
         'mamak', 'nasi kandar', 'briyani', 'biryani', 'chapati'
     ];
 
-    // General location/place keywords
     const locationKeywords = [
         'makanan', 'makan', 'food', 'eat', 'dining', 'lunch', 'dinner', 'breakfast', 'brunch',
         'restaurant', 'restoran', 'kedai makan',
@@ -26,43 +66,35 @@ function detectLocationQuery(message) {
         'cafe', 'kafe', 'coffee', 'kopi',
         'bar', 'pub', 'club', 'nightlife',
         'shop', 'kedai', 'mall', 'shopping',
-        'spa', 'massage', 'urut',
-        'gym', 'fitness',
-        'clinic', 'klinik', 'hospital'
+        'spa', 'massage', 'urut', 'gym', 'fitness', 'clinic', 'klinik', 'hospital',
+        'cinema', 'gsc', 'tgv', 'movie', 'wayang', 'bowling', 'karaoke'
     ];
 
-    // Restaurant/eatery patterns
     const restaurantPatterns = [
         'warung', 'gerai', 'stall', 'dapur', 'kitchen',
         'restoran', 'restaurant', 'cafe', 'kopitiam',
         'mama', 'mak', 'pak', 'abang', 'kakak', 'cik'
     ];
 
-    // Location indicators
     const locationIndicators = [
         'kat', 'di', 'dekat', 'near', 'around', 'dalam', 'in', 'at',
         'area', 'kawasan', 'sekitar', 'road', 'jalan', 'taman', 'bandar'
     ];
 
-    // Recommendation words
     const recommendationWords = [
         'sedap', 'best', 'popular', 'famous', 'terkenal', 'recommended', 'recommend',
         'cheap', 'murah', 'affordable', 'budget',
-        'good', 'bagus', 'nice', 'cantik',
-        'top', 'terbaik', 'suggest', 'suggestion'
+        'good', 'bagus', 'nice', 'cantik', 'top', 'terbaik', 'suggest', 'suggestion'
     ];
 
-    // Operational queries (asking if open/closed)
     const operationalWords = [
         'bukak', 'buka', 'tutup', 'open', 'close', 'closed',
         'operating', 'hours', 'jam', 'masa', 'waktu',
         'ada ke', 'ada tak', 'wujud', 'exist'
     ];
 
-    // Verification/existence queries
     const verificationWords = ['wujud', 'exist', 'betul ke', 'right?', 'real?', 'mana', 'where', 'kat mana'];
 
-    // Check all conditions
     const hasFoodKeyword = foodKeywords.some(kw => lowerMsg.includes(kw));
     const hasLocationKeyword = locationKeywords.some(kw => lowerMsg.includes(kw));
     const hasRestaurantPattern = restaurantPatterns.some(rp => lowerMsg.includes(rp));
@@ -71,12 +103,6 @@ function detectLocationQuery(message) {
     const hasOperational = operationalWords.some(ow => lowerMsg.includes(ow));
     const hasVerification = verificationWords.some(vw => lowerMsg.includes(vw));
 
-    // Detection logic:
-    // 1. Food/restaurant + location indicator (e.g., "nasi ayam dekat tapah")
-    // 2. Food/restaurant + operational query (e.g., "mamak bukak dak?")
-    // 3. Location keyword + recommendation (e.g., "kedai makan sedap")
-    // 4. Restaurant pattern + any indicator (e.g., "warung mak linda")
-    // 5. Location indicator + verification (e.g., "dekat mana restoran tu")
     const isLocationQuery =
         ((hasFoodKeyword || hasRestaurantPattern) && hasLocationIndicator) ||
         ((hasFoodKeyword || hasRestaurantPattern) && hasOperational) ||
@@ -84,13 +110,16 @@ function detectLocationQuery(message) {
         (hasRestaurantPattern && (hasLocationIndicator || hasOperational || hasVerification)) ||
         (hasLocationIndicator && hasVerification);
 
-    if (isLocationQuery) {
-        console.log(`🌐 Detected location query: "${message}"`);
+    // 4. FINAL DECISION
+    const shouldGoOnline = hasOnlineKeyword || isLocationQuery;
+
+    if (shouldGoOnline) {
+        console.log(`🌐 Knowledge Router: Routing ONLINE for "${message}"`);
     }
 
-    return isLocationQuery;
+    return shouldGoOnline;
 }
 
 module.exports = {
-    detectLocationQuery
+    detectOnlineQuery
 };
