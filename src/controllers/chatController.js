@@ -146,7 +146,10 @@ async function streamChat(req, res) {
         const isOnlineQuery = onlineDetector.detectOnlineQuery(message);
 
         if (isOnlineQuery) {
-            const searchSnippet = message.length > 30 ? message.substring(0, 30) + '...' : message;
+            // Strip trigger words from display snippet for cleaner UX
+            const triggerWords = /^(search|google|cari|find|check|online|web)\s+/i;
+            const cleanedMessage = message.replace(triggerWords, '').trim();
+            const searchSnippet = cleanedMessage.length > 30 ? cleanedMessage.substring(0, 30) + '...' : cleanedMessage;
             sendEvent('thinking', { message: `Searching the web for "${searchSnippet}"... 🔍` });
         } else {
             sendEvent('thinking', { message: 'Processing your request...' });
