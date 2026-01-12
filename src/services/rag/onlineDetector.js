@@ -61,6 +61,21 @@ function detectOnlineQuery(message) {
 
     const hasActionPattern = actionPatterns.some(pattern => lowerMsg.includes(pattern));
 
+    // 2.6 LIFESTYLE LAYER: Shopping & Retail (Expanded)
+    const shoppingKeywords = [
+        // Items
+        'shoe', 'kasut', 'sneaker', 'heel', 'boot',
+        'clothes', 'clothing', 'baju', 'shirt', 'pants', 'trousers', 'seluar', 'dress',
+        'bag', 'handbag', 'beg', 'wallet', 'purse',
+        'gadget', 'phone', 'iphone', 'samsung', 'laptop', 'computer',
+        // Brands (Examples) -> "Brand" keyword covers generic queries, specific brands caught here
+        'uniqlo', 'zara', 'h&m', 'padini', 'nike', 'adidas', 'apple', 'sony',
+        // General
+        'brand', 'jenama', 'fashion', 'fesyen', 'retail', 'outlet', 'store'
+    ];
+
+    const hasShoppingKeyword = shoppingKeywords.some(kw => lowerMsg.includes(kw));
+
     // 3. LEGACY LAYER: Detailed Lifestyle/Location Detection (Preserved)
     const foodKeywords = [
         'nasi', 'ayam', 'ikan', 'mee', 'mihun', 'kuey teow', 'roti', 'naan',
@@ -123,7 +138,7 @@ function detectOnlineQuery(message) {
         (hasLocationIndicator && hasVerification);
 
     // 4. FINAL DECISION
-    const shouldGoOnline = hasOnlineKeyword || isLocationQuery || hasActionPattern;
+    const shouldGoOnline = hasOnlineKeyword || isLocationQuery || hasActionPattern || hasShoppingKeyword;
 
     if (shouldGoOnline) {
         console.log(`🌐 Knowledge Router: Routing ONLINE for "${message}"`);
