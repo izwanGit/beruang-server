@@ -279,7 +279,7 @@ Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
             { role: 'user', content: augmentedPrompt }
         ];
 
-        const stream = await llmService.streamChat(messages, { isLocationQuery, hasWebResults });
+        const stream = await llmService.streamChat(messages, { isLocationQuery });
 
         const heartbeat = setInterval(() => {
             sendEvent('heartbeat', { status: 'alive' });

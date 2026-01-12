@@ -178,7 +178,6 @@ No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. ð
  */
 async function streamChat(messages, options = {}) {
     const isLocationQuery = options.isLocationQuery || false;
-    const hasWebResults = options.hasWebResults || false;
 
     // Use :online suffix for location queries - enables Grok's built-in web search!
     const model = isLocationQuery ? "x-ai/grok-4.1-fast:online" : "x-ai/grok-4.1-fast";
@@ -193,7 +192,7 @@ async function streamChat(messages, options = {}) {
             { role: 'system', content: SYSTEM_INSTRUCTION },
             ...messages
         ],
-        temperature: (isLocationQuery || hasWebResults) ? 0.1 : 0.5,
+        temperature: isLocationQuery ? 0.1 : 0.5,
         max_tokens: 500,
         stream: true
     });
