@@ -211,12 +211,13 @@ Here is my complete user profile for context:
 - Current Allocated Savings Target (Leftover from Budget): RM ${userProfile.allocatedSavingsTarget || 0}
 `.trim() : '';
 
-        // Optimization: Don't send DOSM, Manual, or Tips for online searches
+        // Optimization: Don't send DOSM or Tips for online searches (save tokens)
+        // BUT keep App Manual (for XP/Gamification rules) and Budget Context (for affordability)
         const dosmContext = (!isOnlineQuery && userProfile?.state) ? knowledgeBase.getDosmData(userProfile.state) : '';
         const tipsContext = (!isOnlineQuery && relevantTips.length > 0) ? `
 Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
 ` : '';
-        const appManualContext = !isOnlineQuery ? knowledgeBase.getAppManualContext() : '';
+        const appManualContext = knowledgeBase.getAppManualContext();
 
         // Optimization: Use compact transaction context (summaries only) for search
         const transactionContext = buildTransactionContext(transactions, isOnlineQuery);
