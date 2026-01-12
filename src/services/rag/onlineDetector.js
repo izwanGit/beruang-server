@@ -70,6 +70,9 @@ function detectOnlineQuery(message) {
         'gadget', 'phone', 'iphone', 'samsung', 'laptop', 'computer',
         // Brands (Examples) -> "Brand" keyword covers generic queries, specific brands caught here
         'uniqlo', 'zara', 'h&m', 'padini', 'nike', 'adidas', 'apple', 'sony',
+        // Vehicles
+        'car', 'kereta', 'motor', 'motorcycle', 'vehicle',
+        'perodua', 'proton', 'honda', 'toyota', 'myvi', 'axia', 'bezza', 'saga', 'x50', 'x70',
         // General
         'brand', 'jenama', 'fashion', 'fesyen', 'retail', 'outlet', 'store'
     ];
