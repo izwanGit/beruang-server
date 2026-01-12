@@ -4,7 +4,7 @@
 
 const intentService = require('../services/ai/intentService');
 const llmService = require('../services/ai/llmService');
-const tavilyService = require('../services/rag/tavilyService');
+const locationDetector = require('../services/rag/locationDetector');
 const budgetService = require('../services/finance/budgetService');
 const knowledgeBase = require('../models/knowledgeBase');
 
@@ -181,26 +181,23 @@ async function streamChat(req, res) {
 
         sendEvent('thinking', { message: 'Processing your request...' });
 
-        // Check if location query
-        const isLocationQuery = tavilyService.detectLocationQuery(message);
+        // Check if location query (triggers Grok :online mode)
+        const isLocationQuery = locationDetector.detectLocationQuery(message);
 
-        // Run all context gathering in parallel
-        const [intentResult, webSearchResult] = await Promise.all([
-            intentService.predictIntent(message),
-            isLocationQuery ? tavilyService.searchWeb(tavilyService.appendHalalFilter(message)) : Promise.resolve(null)
-        ]);
+        // Get intent prediction (web search is now handled by Grok :online)
+        const intentResult = await intentService.predictIntent(message);
 
         const relevantTips = knowledgeBase.getRelevantTips(message);
 
         // Check for local response
         const confidenceNum = intentResult ? parseFloat(intentResult.confidence) : 0;
-        const hasWebResults = webSearchResult && webSearchResult.results;
         const isShortFollowUp = message.trim().length < 20 && (history || []).length > 0;
         const isHighConfidenceLocal = confidenceNum >= 80 &&
             intentResult?.intent !== 'COMPLEX_ADVICE' &&
             knowledgeBase.hasLocalResponse(intentResult?.intent);
 
-        const shouldBypassLocal = (isLocationQuery && hasWebResults) || (isShortFollowUp && !isHighConfidenceLocal);
+        // Bypass local response for location queries (use Grok :online) or short follow-ups
+        const shouldBypassLocal = isLocationQuery || (isShortFollowUp && !isHighConfidenceLocal);
 
         // Serve local response if applicable
         if (!shouldBypassLocal &&
@@ -259,10 +256,7 @@ Here is my complete user profile for context:
 Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
 ` : '';
 
-        let webSearchContext = '';
-        if (webSearchResult && webSearchResult.results) {
-            webSearchContext = `--- WEB SEARCH RESULTS ---\n${webSearchResult.results}\n--- END ---`;
-        }
+        // Note: Web search is now handled by Grok :online, no need to pass context
 
         const appManualContext = knowledgeBase.getAppManualContext();
 
@@ -273,8 +267,7 @@ Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
             appManualContext && '--- BERUANG APP MANUAL (USE THIS FOR HELP) ---\n' + appManualContext,
             dosmContext && '--- STATISTICAL CONTEXT (DOSM) ---\n' + dosmContext,
             tipsContext,
-            transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext,
-            webSearchContext
+            transactionContext && '--- MY RECENT TRANSACTIONS ---\n' + transactionContext
         ].filter(Boolean).join('\n\n');
 
         const recentHistory = (history || []).slice(-8);

@@ -180,8 +180,15 @@ async function streamChat(messages, options = {}) {
     const isLocationQuery = options.isLocationQuery || false;
     const hasWebResults = options.hasWebResults || false;
 
+    // Use :online suffix for location queries - enables Grok's built-in web search!
+    const model = isLocationQuery ? "x-ai/grok-4.1-fast:online" : "x-ai/grok-4.1-fast";
+
+    if (isLocationQuery) {
+        console.log('🌐 Using Grok with built-in web search (:online mode)');
+    }
+
     return await openAI.chat.completions.create({
-        model: "x-ai/grok-4.1-fast",
+        model: model,
         messages: [
             { role: 'system', content: SYSTEM_INSTRUCTION },
             ...messages

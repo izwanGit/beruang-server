@@ -77,6 +77,12 @@ async function importData(req, res) {
     } catch (error) {
         console.error('💥 Import Error:', error);
 
+        if (error.response?.status === 429 || error.message?.includes('429')) {
+            return res.status(429).json({
+                error: 'AI is currently busy (Rate Limited). Please try again in 15-30 seconds! ⏳🐻'
+            });
+        }
+
         if (error.message?.includes('free-models-per-day')) {
             return res.status(429).json({
                 error: 'OpenRouter daily free limit reached! 🐻🚫 Try a different API key or wait until tomorrow.'
