@@ -126,6 +126,31 @@ function calculateBudgetData(transactions, userProfile) {
 function formatBudgetForRAG(budgetData) {
     if (!budgetData) return '';
 
+    // Calculate Waterfall Spillovers for AI context (Non-destructive)
+    const wantsOverflow = Math.max(0, budgetData.budget.wants.spent - budgetData.budget.wants.target);
+    const needsOverflow = Math.max(0, budgetData.budget.needs.spent - budgetData.budget.needs.target);
+
+    let waterfallContext = '';
+    if (wantsOverflow > 0 || needsOverflow > 0) {
+        waterfallContext = `\n⚠️ WATERFALL CASCADE DETECTED (Overspending):`;
+        if (wantsOverflow > 0) {
+            const needsBuffer = budgetData.budget.needs.target - budgetData.budget.needs.spent;
+            const absorbedByNeeds = Math.max(0, Math.min(wantsOverflow, needsBuffer));
+            const absorbedBySavings = Math.max(0, wantsOverflow - absorbedByNeeds);
+            waterfallContext += `\n- Wants spilled RM ${absorbedByNeeds.toFixed(2)} into Needs buffer.`;
+            if (absorbedBySavings > 0) waterfallContext += `\n- Wants spilled RM ${absorbedBySavings.toFixed(2)} into Savings (OVERFLOW).`;
+        }
+        if (needsOverflow > 0) {
+            const wantsBuffer = budgetData.budget.wants.target - budgetData.budget.wants.spent;
+            const absorbedByWants = Math.max(0, Math.min(needsOverflow, wantsBuffer));
+            const absorbedBySavings = Math.max(0, needsOverflow - absorbedByWants);
+            waterfallContext += `\n- Needs spilled RM ${absorbedByWants.toFixed(2)} into Wants buffer.`;
+            if (absorbedBySavings > 0) waterfallContext += `\n- Needs spilled RM ${absorbedBySavings.toFixed(2)} into Savings (OVERFLOW).`;
+        }
+    } else {
+        waterfallContext = `\n✅ No budget overflow detected. Healthy waterfall!`;
+    }
+
     return `
 --- CURRENT MONTH BUDGET BREAKDOWN (50/30/20) ---
 Month: ${budgetData.month}
@@ -146,6 +171,7 @@ BUDGET ALLOCATIONS:
   • Saved: RM ${budgetData.budget.savings20.saved.toFixed(2)}
   • Remaining to save: RM ${budgetData.budget.savings20.pending.toFixed(2)}
   • ${budgetData.budget.savings20.percentage.toFixed(0)}% of target achieved
+${waterfallContext}
 
 TOTALS:
 - Total Saved This Month: RM ${budgetData.totals.savedThisMonth.toFixed(2)}
