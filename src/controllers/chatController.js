@@ -250,6 +250,13 @@ Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
             { role: 'user', content: augmentedPrompt }
         ];
 
+        // Stage 2: Update loading message before LLM stream
+        if (isOnlineQuery) {
+            sendEvent('thinking', { message: 'Processing results... ⚙️' });
+        } else {
+            sendEvent('thinking', { message: 'Generating response... ✨' });
+        }
+
         const stream = await llmService.streamChat(messages, { isLocationQuery: isOnlineQuery });
 
         const heartbeat = setInterval(() => {
