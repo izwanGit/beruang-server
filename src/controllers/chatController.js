@@ -179,10 +179,15 @@ async function streamChat(req, res) {
             if (typeof res.flush === 'function') res.flush();
         };
 
-        sendEvent('thinking', { message: 'Processing your request...' });
-
         // Check if location query (triggers Grok :online mode)
         const isLocationQuery = locationDetector.detectLocationQuery(message);
+
+        if (isLocationQuery) {
+            const searchSnippet = message.length > 30 ? message.substring(0, 30) + '...' : message;
+            sendEvent('thinking', { message: `Searching the web for "${searchSnippet}"... 🔍` });
+        } else {
+            sendEvent('thinking', { message: 'Processing your request...' });
+        }
 
         // Get intent prediction (web search is now handled by Grok :online)
         const intentResult = await intentService.predictIntent(message);
