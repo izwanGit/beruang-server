@@ -49,6 +49,18 @@ function detectOnlineQuery(message) {
 
     const hasOnlineKeyword = generalOnlineKeywords.some(kw => lowerMsg.includes(kw));
 
+    // 2.5 ACTION LAYER: General Action Patterns (For Unknown/Viral Places)
+    // Catches "How to order X", "Menu at Y", "Review of Z" without knowing X, Y, Z
+    const actionPatterns = [
+        'how to order', 'cara order', 'how to buy', 'cara beli',
+        'menu for', 'menu at', 'menu dekat', 'menu di',
+        'price of', 'price at', 'harga di', 'harga dekat',
+        'review', 'feedback', 'comment', 'komen', 'viral',
+        'location of', 'direction to', 'lokasi', 'waze to'
+    ];
+
+    const hasActionPattern = actionPatterns.some(pattern => lowerMsg.includes(pattern));
+
     // 3. LEGACY LAYER: Detailed Lifestyle/Location Detection (Preserved)
     const foodKeywords = [
         'nasi', 'ayam', 'ikan', 'mee', 'mihun', 'kuey teow', 'roti', 'naan',
@@ -111,7 +123,7 @@ function detectOnlineQuery(message) {
         (hasLocationIndicator && hasVerification);
 
     // 4. FINAL DECISION
-    const shouldGoOnline = hasOnlineKeyword || isLocationQuery;
+    const shouldGoOnline = hasOnlineKeyword || isLocationQuery || hasActionPattern;
 
     if (shouldGoOnline) {
         console.log(`🌐 Knowledge Router: Routing ONLINE for "${message}"`);
