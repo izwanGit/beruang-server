@@ -257,7 +257,25 @@ Expert Tips: ${relevantTips.map(t => `${t.topic}: ${t.advice}`).join('; ')}
             sendEvent('thinking', { message: 'Generating response... ✨' });
         }
 
-        const stream = await llmService.streamChat(messages, { isLocationQuery: isOnlineQuery });
+        // Retry logic: 1 retry with 1 second delay
+        let stream;
+        let retryCount = 0;
+        const maxRetries = 1;
+
+        while (retryCount <= maxRetries) {
+            try {
+                stream = await llmService.streamChat(messages, { isLocationQuery: isOnlineQuery });
+                break; // Success, exit retry loop
+            } catch (apiError) {
+                retryCount++;
+                if (retryCount > maxRetries) {
+                    console.error(`❌ Grok API failed after ${maxRetries} retries:`, apiError.message);
+                    throw apiError;
+                }
+                console.warn(`⚠️ Grok API failed, retrying in 1s... (attempt ${retryCount}/${maxRetries})`);
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
 
         const heartbeat = setInterval(() => {
             sendEvent('heartbeat', { status: 'alive' });

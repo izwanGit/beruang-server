@@ -18,7 +18,10 @@ function detectOnlineQuery(message) {
         'my expense', 'my income', 'my savings', 'review my', 'check my',
         'track my', 'log my', 'add expense', 'add income', 'add transaction',
         'how much did i', 'how much have i', 'am i', 'do i have',
-        'in my app', 'in beruang'
+        'in my app', 'in beruang',
+        // Additional patterns for better coverage
+        'did i spend', 'have i spent', 'i spent', 'i spend', 'what i spent',
+        'show me my', 'where did my', 'analyze my', 'summarize my'
     ];
 
     const isPrivateQuery = privacyKeywords.some(kw => lowerMsg.includes(kw));
