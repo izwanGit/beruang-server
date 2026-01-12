@@ -140,8 +140,18 @@ function detectOnlineQuery(message) {
         (hasRestaurantPattern && (hasLocationIndicator || hasOperational || hasVerification)) ||
         (hasLocationIndicator && hasVerification);
 
-    // 4. FINAL DECISION
-    const shouldGoOnline = hasOnlineKeyword || isLocationQuery || hasActionPattern || hasShoppingKeyword;
+    // 4. EXPLICIT COMMAND LAYER: Manual Overrides
+    // Allows user to force search: "Search X", "Google Y", "Cari Z"
+    const explicitCommands = [
+        'search', 'cari', 'google', 'find', 'check', 'online', 'web', 'internet'
+    ];
+
+    // Check if message STARTS with or explicitly requests these
+    // Simple check: inclusive contains is safer for natural language
+    const hasExplicitCommand = explicitCommands.some(cmd => lowerMsg.includes(cmd));
+
+    // 5. FINAL DECISION
+    const shouldGoOnline = hasOnlineKeyword || isLocationQuery || hasActionPattern || hasShoppingKeyword || hasExplicitCommand;
 
     if (shouldGoOnline) {
         console.log(`🌐 Knowledge Router: Routing ONLINE for "${message}"`);
