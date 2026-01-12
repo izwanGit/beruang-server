@@ -53,6 +53,7 @@ function detectOnlineQuery(message) {
     // Catches "How to order X", "Menu at Y", "Review of Z" without knowing X, Y, Z
     const actionPatterns = [
         'how to order', 'cara order', 'how to buy', 'cara beli',
+        'maca mana', 'macam mana', 'camne', 'cemana', 'nak order', 'nak beli',
         'menu for', 'menu at', 'menu dekat', 'menu di',
         'price of', 'price at', 'harga di', 'harga dekat',
         'review', 'feedback', 'comment', 'komen', 'viral',
