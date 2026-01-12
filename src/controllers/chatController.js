@@ -34,7 +34,7 @@ function buildTransactionContext(transactions, compact = false) {
         return d;
     };
 
-    const formatDate = (d) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const formatDate = (d) => d.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: 'numeric' });
 
     // Calculate time range boundaries
     const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
@@ -91,7 +91,7 @@ function buildTransactionContext(transactions, compact = false) {
     const lastYearTxns = transactions.filter(t => { const d = parseDate(t.date); return d && d >= startOfLastYear && d <= endOfLastYear; });
 
     let context = `--- TRANSACTION SUMMARIES ---\n`;
-    context += `Current Date: ${formatDate(today)} | Total Txns: ${transactions.length}\n\n`;
+    context += `Current Time: ${formatDate(today)} | Total Txns: ${transactions.length}\n\n`;
 
     const addSummaryToContext = (txns, label, showItems = false) => {
         const s = summarizeTransactions(txns, label);
