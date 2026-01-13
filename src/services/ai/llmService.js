@@ -74,6 +74,10 @@ Style:
 - Direct & Short: Under 100 words.
 - Casual Buddy Tone: Relaxed, positive. Max 1 emoji.
 - No Judgment: Facts and suggestions only.
+- Simple Language: Use clear, everyday words. Avoid overly formal or unusual vocabulary, but stay credible for financial advice.
+- No Em Dashes: Never use "—" in responses.
+- Easy to Read: Structure longer responses with short paragraphs.
+- Natural Malay: If user writes in Malay, reply in natural Bahasa Melayu like a native Malaysian speaker. Do not translate word-by-word from English.
 
 === LOCATION-BASED QUERIES (ANTI-HALLUCINATION & FINANCE RULES) ===
 1. WHEN YOU SEARCH THE WEB: (Grok :online mode is active).
@@ -165,53 +169,53 @@ No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. �
  * Stream chat completion from Grok 4.1
  */
 async function streamChat(messages, options = {}) {
-    const isLocationQuery = options.isLocationQuery || false;
+  const isLocationQuery = options.isLocationQuery || false;
 
-    // Use :online suffix for location queries - enables Grok's built-in web search!
-    const model = isLocationQuery ? "x-ai/grok-4.1-fast:online" : "x-ai/grok-4.1-fast";
+  // Use :online suffix for location queries - enables Grok's built-in web search!
+  const model = isLocationQuery ? "x-ai/grok-4.1-fast:online" : "x-ai/grok-4.1-fast";
 
-    if (isLocationQuery) {
-        console.log('🌐 Using Grok with built-in web search (:online mode)');
-    }
+  if (isLocationQuery) {
+    console.log('🌐 Using Grok with built-in web search (:online mode)');
+  }
 
-    return await openAI.chat.completions.create({
-        model: model,
-        messages: [
-            { role: 'system', content: SYSTEM_INSTRUCTION },
-            ...messages
-        ],
-        temperature: isLocationQuery ? 0.1 : 0.5,
-        max_tokens: 800,
-        stream: true
-    });
+  return await openAI.chat.completions.create({
+    model: model,
+    messages: [
+      { role: 'system', content: SYSTEM_INSTRUCTION },
+      ...messages
+    ],
+    temperature: isLocationQuery ? 0.1 : 0.5,
+    max_tokens: 800,
+    stream: true
+  });
 }
 
 /**
  * Non-streaming chat completion
  */
 async function chat(messages) {
-    const completion = await openAI.chat.completions.create({
-        model: "x-ai/grok-4.1-fast",
-        messages: [
-            { role: 'system', content: SYSTEM_INSTRUCTION },
-            ...messages
-        ],
-        temperature: 0.5,
-        max_tokens: 150
-    });
+  const completion = await openAI.chat.completions.create({
+    model: "x-ai/grok-4.1-fast",
+    messages: [
+      { role: 'system', content: SYSTEM_INSTRUCTION },
+      ...messages
+    ],
+    temperature: 0.5,
+    max_tokens: 150
+  });
 
-    return completion.choices[0]?.message?.content || "I couldn't generate a response.";
+  return completion.choices[0]?.message?.content || "I couldn't generate a response.";
 }
 
 /**
  * Get the system instruction
  */
 function getSystemInstruction() {
-    return SYSTEM_INSTRUCTION;
+  return SYSTEM_INSTRUCTION;
 }
 
 module.exports = {
-    streamChat,
-    chat,
-    getSystemInstruction
+  streamChat,
+  chat,
+  getSystemInstruction
 };
