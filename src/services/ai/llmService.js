@@ -162,7 +162,7 @@ For follow-ups: ALWAYS reference the previous context and answer accordingly.
 Don't treat short messages as new standalone questions.
 === END CONVERSATION RULES ===
 
-No markdown formatting inside JSON. Use [WIDGET_DATA] only when truly helpful. 🐻
+No markdown formatting inside JSON. ALWAYS wrap widget data like this: [WIDGET_DATA]{...}[/WIDGET_DATA]. The closing tag is REQUIRED. 🐻
 `;
 
 /**
