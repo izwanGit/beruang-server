@@ -185,7 +185,7 @@ async function streamChat(messages, options = {}) {
       ...messages
     ],
     temperature: isLocationQuery ? 0.1 : 0.5,
-    max_tokens: 800,
+    max_tokens: 1200,
     stream: true
   });
 }
